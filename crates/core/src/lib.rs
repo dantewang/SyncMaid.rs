@@ -4,6 +4,7 @@
 //! an in-memory filesystem. Its error messages stay English — display strings live in the app.
 
 pub mod filtering;
+pub mod io;
 pub mod model;
 pub mod triggers;
 

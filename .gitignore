@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# Portable-mode runtime data, if the app is ever run from the source tree.
+/Data

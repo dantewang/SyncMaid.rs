@@ -1,0 +1,33 @@
+[package]
+name = "syncmaid-core"
+description = "SyncMaid's UI-free sync engine: model, planner, safe transfer, triggers, persistence."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The Recycle Bin (IFileOperation) and the handful of Win32 calls std does not cover:
+# volume free space, write-through opens, and directory timestamps.
+trash = "5"
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+] }
+
+[features]
+# Exposes the in-memory filesystem and its fault-injection switches to downstream test code.
+testing = []
+
+[dev-dependencies]
+tempfile = "3"

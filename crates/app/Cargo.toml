@@ -1,0 +1,23 @@
+[package]
+name = "syncmaid"
+description = "SyncMaid — one-way file sync for Windows, done for you."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "SyncMaid"
+path = "src/main.rs"
+
+[dependencies]
+syncmaid-core.workspace = true
+
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+gpui = "0.2.2"
+gpui-component = "0.5.1"

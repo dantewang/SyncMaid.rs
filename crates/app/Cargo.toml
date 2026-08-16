@@ -25,6 +25,8 @@ gpui-component = "0.5.1"
 raw-window-handle = "0.6.2"
 flume = "0.12.0"
 rust-embed = "8.12.0"
+tracing-subscriber = { version = "0.3.23", features = ["fmt"] }
+chrono.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The tray lives on its own thread with its own win32 message pump; ShowWindow is what keeps
@@ -37,3 +39,6 @@ windows-sys = { version = "0.61", features = [
 
 [build-dependencies]
 winresource = "0.1"
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -6,11 +6,13 @@
 mod assets;
 mod platform;
 mod selftest;
+mod services;
 mod views;
 
 use anyhow::Result;
 use gpui::{px, size, App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions};
 use gpui_component::{Root, TitleBar};
+use syncmaid_core::persistence::ConfigLocation;
 
 use crate::platform::tray::{TrayCommand, TrayLabels};
 use crate::views::MainView;
@@ -21,6 +23,12 @@ const WINDOW_MIN_SIZE: (f32, f32) = (640., 480.);
 
 fn main() {
     let self_test = std::env::args().any(|argument| argument == "--self-test-tray");
+
+    // Portable: everything SyncMaid writes lives in a Data folder beside the executable, so
+    // the whole app is a folder you can copy to a USB stick.
+    let config = ConfigLocation::portable();
+    services::logging::install(&config.log_path());
+    tracing::info!(directory = %config.directory().display(), "SyncMaid starting");
 
     Application::new()
         .with_assets(assets::Assets)

@@ -1,7 +1,34 @@
-//! How a sync task is initiated.
+//! How a sync task is initiated: the persisted trigger data, and the runners that turn it into
+//! `fired` events.
 //!
-//! This module holds the persisted trigger *data*. The runners that turn it into `fired`
-//! events (cron timers, filesystem watchers, network polling) land alongside it later.
+//! Every runner delivers through [`TriggerNotifier`], which is what keeps the one contract they
+//! all share: decide under the owner's state gate, deliver outside it, in decided order, and
+//! never after `stop` returns.
+//!
+//! **A trigger stays live across its own task's run.** Nothing calls `stop` around a run. For a
+//! Move task — the only kind that mutates its own source — that costs exactly one extra run
+//! afterwards, which is a planner no-op and does not cascade. Mirror and Add-only never
+//! self-trigger at all. Suppressing the trigger around runs would save one tree walk and add a
+//! resume-failure path that has to surface as the card's trigger-error badge; it was weighed
+//! and declined.
+
+mod cron;
+mod factory;
+mod notifier;
+mod polling;
+mod scheduled;
+mod snapshot;
+mod source;
+mod watch;
+
+pub use cron::{CronParseError, CronSchedule};
+pub use factory::{DefaultTriggerSourceFactory, TriggerSourceFactory};
+pub use notifier::{Notification, TriggerNotifier, TriggerObserver};
+pub use polling::{PollingWatchTriggerSource, DEFAULT_INTERVAL as DEFAULT_POLL_INTERVAL};
+pub use scheduled::{ManualTriggerSource, Schedule, ScheduledTriggerSource};
+pub use snapshot::TreeSnapshot;
+pub use source::{TriggerError, TriggerSource};
+pub use watch::WatchTriggerSource;
 
 use serde::{Deserialize, Serialize};
 

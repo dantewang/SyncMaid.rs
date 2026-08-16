@@ -9,7 +9,9 @@
 #![allow(dead_code)]
 
 mod health;
+mod run_gate;
 mod workspace;
 
 pub use health::health_of;
+pub use run_gate::{RunGate, RunStart};
 pub use workspace::Workspace;

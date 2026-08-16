@@ -8,6 +8,10 @@ authors.workspace = true
 repository.workspace = true
 build = "build.rs"
 
+[lib]
+name = "syncmaid"
+path = "src/lib.rs"
+
 [[bin]]
 name = "SyncMaid"
 path = "src/main.rs"
@@ -43,5 +47,7 @@ windows-sys = { version = "0.61", features = [
 winresource = "0.1"
 
 [dev-dependencies]
+notify = "8.2.0"
 syncmaid-core = { workspace = true, features = ["testing"] }
 tempfile = "3.27.0"
+

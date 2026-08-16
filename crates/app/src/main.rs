@@ -3,26 +3,19 @@
 // A GUI app should not flash a console. Debug builds keep one so tracing has somewhere to go.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod assets;
-mod components;
-mod platform;
 mod selftest;
-mod services;
-mod state;
-mod theme;
-mod views;
 
 use std::sync::Arc;
 
 use anyhow::Result;
 use gpui::{px, size, App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions};
 use gpui_component::{Root, TitleBar};
+use syncmaid::platform::tray::{TrayCommand, TrayLabels};
+use syncmaid::state::Workspace;
+use syncmaid::views::MainView;
+use syncmaid::{assets, platform, services};
 use syncmaid_core::io::{FileSystem, PhysicalFileSystem};
 use syncmaid_core::persistence::ConfigLocation;
-
-use crate::platform::tray::{TrayCommand, TrayLabels};
-use crate::state::Workspace;
-use crate::views::MainView;
 
 /// The Avalonia build's window geometry, kept so the port lands in the same place.
 const WINDOW_SIZE: (f32, f32) = (940., 620.);

@@ -60,6 +60,7 @@ impl TriggerSourceFactory for DefaultTriggerSourceFactory {
                     )))
                 } else {
                     Ok(Box::new(WatchTriggerSource::new(
+                        Arc::clone(&self.file_system),
                         source_path,
                         settle,
                         observer,
@@ -139,7 +140,10 @@ mod tests {
             let _ = sender.lock().unwrap().send(notification);
         });
 
-        let mut source = factory()
+        // A real filesystem, because the watcher confirms the change by walking the source.
+        let factory =
+            DefaultTriggerSourceFactory::new(Arc::new(crate::io::PhysicalFileSystem::new()));
+        let mut source = factory
             .create(&Trigger::Watch { settle_seconds: 1 }, root.path(), observer)
             .unwrap();
         source.start().unwrap();

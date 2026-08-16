@@ -14,6 +14,7 @@ use rust_embed::RustEmbed;
 #[folder = "assets"]
 #[include = "icons/**/*.svg"]
 #[include = "fonts/**/*"]
+#[include = "*.png"]
 pub struct Assets;
 
 impl AssetSource for Assets {

@@ -27,6 +27,7 @@ flume = "0.12.0"
 rust-embed = "8.12.0"
 tracing-subscriber = { version = "0.3.23", features = ["fmt"] }
 chrono.workspace = true
+uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 # The tray lives on its own thread with its own win32 message pump; ShowWindow is what keeps
@@ -34,6 +35,7 @@ chrono.workspace = true
 tray-icon = "0.24"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }
 
@@ -41,4 +43,5 @@ windows-sys = { version = "0.61", features = [
 winresource = "0.1"
 
 [dev-dependencies]
+syncmaid-core = { workspace = true, features = ["testing"] }
 tempfile = "3.27.0"

@@ -38,7 +38,8 @@ fn main() {
             gpui_component::init(cx);
 
             let workspace = Workspace::load(Arc::clone(&file_system), &config);
-            let window = open_main_window(workspace, cx).expect("open the main window");
+            let window = open_main_window(workspace, Arc::clone(&file_system), cx)
+                .expect("open the main window");
 
             match start_tray(cx, window) {
                 Ok(()) => {}
@@ -75,7 +76,11 @@ fn display_scale() -> f32 {
     }
 }
 
-fn open_main_window(workspace: Workspace, cx: &mut App) -> Result<gpui::WindowHandle<Root>> {
+fn open_main_window(
+    workspace: Workspace,
+    file_system: Arc<dyn FileSystem>,
+    cx: &mut App,
+) -> Result<gpui::WindowHandle<Root>> {
     let scale = display_scale();
     let bounds = Bounds::centered(
         None,
@@ -96,7 +101,7 @@ fn open_main_window(workspace: Workspace, cx: &mut App) -> Result<gpui::WindowHa
         },
         |window, cx| {
             // Root is what gives the window its dialog, sheet and notification layers.
-            let view: gpui::AnyView = cx.new(|_| MainView::new(workspace)).into();
+            let view: gpui::AnyView = cx.new(|_| MainView::new(workspace, file_system)).into();
             cx.new(|cx| Root::new(view, window, cx))
         },
     )?;

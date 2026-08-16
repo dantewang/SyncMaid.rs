@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use syncmaid_core::io::FileSystem;
-use syncmaid_core::model::{AppSettings, DestinationSyncStatus, SyncTask};
+use syncmaid_core::model::{AppSettings, DestinationSyncStatus, SyncOutcome, SyncTask};
 use syncmaid_core::persistence::{ConfigLocation, SettingsStore, StatusStore, TaskStore};
 use uuid::Uuid;
 
@@ -111,6 +111,72 @@ impl Workspace {
         self.expanded.clear();
         if expanded {
             self.expanded.extend(self.tasks.iter().map(|task| task.id));
+        }
+    }
+
+    /// The task with this id, if it is still here.
+    pub fn task(&self, task_id: Uuid) -> Option<&SyncTask> {
+        self.tasks.iter().find(|task| task.id == task_id)
+    }
+
+    /// Adds a task, or replaces the one with the same id, and writes the list out.
+    pub fn upsert_task(&mut self, task: SyncTask) {
+        match self
+            .tasks
+            .iter_mut()
+            .find(|existing| existing.id == task.id)
+        {
+            Some(existing) => *existing = task,
+            None => {
+                self.expanded.insert(task.id);
+                self.tasks.push(task);
+            }
+        }
+        self.persist_tasks();
+    }
+
+    /// Removes a task and everything keyed to it.
+    pub fn remove_task(&mut self, task_id: Uuid) {
+        self.tasks.retain(|task| task.id != task_id);
+        self.expanded.remove(&task_id);
+        if self.selected == Some(task_id) {
+            self.selected = None;
+        }
+        self.persist_tasks();
+        self.persist_statuses();
+    }
+
+    /// What every destination of `task` currently reads, so a cancelled run can put it back.
+    ///
+    /// A cancelled run is not a failure: the work that landed stays, and the rows go back to
+    /// what they said before rather than reporting something that never finished.
+    pub fn status_snapshot(&self, task: &SyncTask) -> Vec<DestinationSyncStatus> {
+        task.destinations
+            .iter()
+            .map(|destination| {
+                self.statuses
+                    .get(&destination.id)
+                    .cloned()
+                    .unwrap_or_else(|| DestinationSyncStatus::never(destination.id))
+            })
+            .collect()
+    }
+
+    /// Puts every destination of `task` into the running state, without writing to disk —
+    /// `Running` is transient and has no business in `status.json`.
+    pub fn mark_running(&mut self, task: &SyncTask) {
+        for destination in &task.destinations {
+            self.statuses.insert(
+                destination.id,
+                DestinationSyncStatus::new(destination.id, SyncOutcome::Running),
+            );
+        }
+    }
+
+    /// Puts statuses back without writing them out, for a run that was cancelled.
+    pub fn restore_statuses(&mut self, statuses: Vec<DestinationSyncStatus>) {
+        for status in statuses {
+            self.statuses.insert(status.destination_id, status);
         }
     }
 

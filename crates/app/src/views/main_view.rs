@@ -1,27 +1,282 @@
 //! The main window: title bar, task sidebar, task list.
 
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
 use gpui::{
-    div, img, prelude::*, px, Context, FontWeight, SharedString, Window, WindowControlArea,
+    div, img, prelude::*, px, Context, Entity, FontWeight, SharedString, Subscription, Window,
+    WindowControlArea,
 };
+use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{
     Destination, DestinationSyncStatus, SyncOutcome, SyncStrategy, SyncTask, SyncTaskKind,
 };
+use syncmaid_core::sync::{SyncEngine, SyncOperation, SyncProgress};
 use syncmaid_core::triggers::Trigger;
+use uuid::Uuid;
 
 use crate::components::{
     icon, Badge, Button, ButtonTone, HintBox, HintTone, Icon, IconButton, IconButtonTone,
 };
-use crate::state::{health_of, Workspace};
+use crate::state::{health_of, RunGate, Workspace};
 use crate::theme;
+use crate::views::dialogs::{ConfirmDialog, ConfirmEvent, TaskEditor, TaskEditorEvent};
+
+/// Which modal is open, and what it will do when it says yes.
+enum ActiveDialog {
+    Confirm(Entity<ConfirmDialog>),
+    TaskEditor(Entity<TaskEditor>),
+}
+
+/// What a confirmation is confirming.
+#[derive(Debug, Clone, Copy)]
+enum PendingAction {
+    DeleteTask(Uuid),
+    DeleteDestination { task: Uuid, destination: Uuid },
+}
 
 /// The main window's content.
 pub struct MainView {
     workspace: Workspace,
+    file_system: Arc<dyn FileSystem>,
+    engine: Arc<SyncEngine>,
+    /// One gate per task: runs of a task are serialized, runs of different tasks are not.
+    gates: HashMap<Uuid, Arc<RunGate>>,
+    /// Live progress text per destination, replaced by the row's status when the run ends.
+    progress: HashMap<Uuid, String>,
+    dialog: Option<ActiveDialog>,
+    /// Dropped when the dialog closes, which is what unsubscribes it.
+    dialog_subscription: Option<Subscription>,
 }
 
 impl MainView {
-    pub fn new(workspace: Workspace) -> Self {
-        Self { workspace }
+    pub fn new(workspace: Workspace, file_system: Arc<dyn FileSystem>) -> Self {
+        Self {
+            engine: Arc::new(SyncEngine::local(Arc::clone(&file_system))),
+            workspace,
+            file_system,
+            gates: HashMap::new(),
+            progress: HashMap::new(),
+            dialog: None,
+            dialog_subscription: None,
+        }
+    }
+
+    fn gate_for(&mut self, task_id: Uuid) -> Arc<RunGate> {
+        Arc::clone(
+            self.gates
+                .entry(task_id)
+                .or_insert_with(|| Arc::new(RunGate::new())),
+        )
+    }
+
+    fn close_dialog(&mut self, cx: &mut Context<Self>) {
+        self.dialog = None;
+        self.dialog_subscription = None;
+        cx.notify();
+    }
+
+    fn open_task_editor(
+        &mut self,
+        task_id: Option<Uuid>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let tasks = self.workspace.tasks().to_vec();
+        let file_system = Arc::clone(&self.file_system);
+        let existing = task_id.and_then(|id| self.workspace.task(id).cloned());
+
+        let editor = cx.new(|cx| match &existing {
+            Some(task) => TaskEditor::edit(task, tasks, file_system, window, cx),
+            None => TaskEditor::new_task(tasks, file_system, window, cx),
+        });
+
+        self.dialog_subscription = Some(cx.subscribe(
+            &editor,
+            |view, _, event: &TaskEditorEvent, cx| match event {
+                TaskEditorEvent::Saved(task) => {
+                    view.workspace.upsert_task((**task).clone());
+                    view.close_dialog(cx);
+                }
+                TaskEditorEvent::Cancelled => view.close_dialog(cx),
+            },
+        ));
+        self.dialog = Some(ActiveDialog::TaskEditor(editor));
+        cx.notify();
+    }
+
+    fn open_confirm(
+        &mut self,
+        dialog: ConfirmDialog,
+        action: PendingAction,
+        cx: &mut Context<Self>,
+    ) {
+        let entity = cx.new(|_| dialog);
+        self.dialog_subscription = Some(cx.subscribe(
+            &entity,
+            move |view, _, event: &ConfirmEvent, cx| {
+                if *event == ConfirmEvent::Confirmed {
+                    view.apply_pending(action, cx);
+                }
+                view.close_dialog(cx);
+            },
+        ));
+        self.dialog = Some(ActiveDialog::Confirm(entity));
+        cx.notify();
+    }
+
+    fn apply_pending(&mut self, action: PendingAction, _cx: &mut Context<Self>) {
+        match action {
+            PendingAction::DeleteTask(task_id) => {
+                // Stop it first: a task that is mid-run must not keep writing after it is gone.
+                if let Some(gate) = self.gates.remove(&task_id) {
+                    gate.refuse_further_requests();
+                }
+                self.workspace.remove_task(task_id);
+            }
+            PendingAction::DeleteDestination { task, destination } => {
+                if let Some(mut owner) = self.workspace.task(task).cloned() {
+                    owner
+                        .destinations
+                        .retain(|existing| existing.id != destination);
+                    self.workspace.upsert_task(owner);
+                    self.workspace.persist_statuses();
+                }
+            }
+        }
+    }
+
+    /// Starts a run, or folds the request into the one already going.
+    fn run_task(&mut self, task_id: Uuid, cx: &mut Context<Self>) {
+        let Some(task) = self.workspace.task(task_id).cloned() else {
+            return;
+        };
+        let gate = self.gate_for(task_id);
+        let engine = Arc::clone(&self.engine);
+        let before = self.workspace.status_snapshot(&task);
+
+        self.workspace.mark_running(&task);
+        cx.notify();
+
+        cx.spawn(async move |view, cx| {
+            let Some(mut start) = gate.request(HashSet::new()) else {
+                return; // An active run absorbed it; its drain will pick it up.
+            };
+
+            loop {
+                let (reports, progress) = flume::unbounded::<SyncProgress>();
+                let forwarding = {
+                    let view = view.clone();
+                    cx.spawn(async move |cx| {
+                        while let Ok(report) = progress.recv_async().await {
+                            let _ = view.update(cx, |view, cx| {
+                                view.progress
+                                    .insert(report.destination_id, describe_progress(&report));
+                                cx.notify();
+                            });
+                        }
+                    })
+                };
+
+                let run = {
+                    let engine = Arc::clone(&engine);
+                    let task = task.clone();
+                    let start = start.clone();
+                    cx.background_executor().spawn(async move {
+                        let outcome = engine.execute(
+                            &task,
+                            &start.cancellation,
+                            &mut |report| {
+                                let _ = reports.send(report);
+                            },
+                            &start.confirmed_mass_deletes,
+                        );
+                        // Dropping the sender is what ends the forwarding task.
+                        drop(reports);
+                        outcome
+                    })
+                };
+
+                let outcome = run.await;
+                forwarding.await;
+
+                let applied = view.update(cx, |view, cx| {
+                    view.progress.clear();
+                    match outcome {
+                        Ok(statuses) => {
+                            for status in &statuses {
+                                log_destination(&task, status);
+                            }
+                            view.workspace.apply_statuses(statuses);
+                        }
+                        // Cancellation is not a failure: what landed stays, and the rows go
+                        // back to what they said before rather than inventing an outcome.
+                        Err(_) => view.workspace.restore_statuses(before.clone()),
+                    }
+                    cx.notify();
+                });
+                if applied.is_err() {
+                    return;
+                }
+
+                match gate.next() {
+                    Some(next) => start = next,
+                    None => return,
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn stop_task(&mut self, task_id: Uuid, cx: &mut Context<Self>) {
+        if let Some(gate) = self.gates.get(&task_id) {
+            gate.cancel();
+        }
+        cx.notify();
+    }
+}
+
+/// `Copying photos/2024/img_0042.jpg (3/120)`
+fn describe_progress(report: &SyncProgress) -> String {
+    let verb = match report.operation {
+        SyncOperation::Copy { .. } => "Copying",
+        SyncOperation::Move { .. } => "Moving",
+        SyncOperation::Delete { .. } | SyncOperation::DeleteDirectory { .. } => "Removing",
+        SyncOperation::CreateDirectory { .. } => "Creating",
+        SyncOperation::SetDirectoryTimestamp { .. } => "Tidying",
+    };
+    format!(
+        "{verb} {} ({}/{})",
+        report.operation.relative_path(),
+        report.completed_operations + 1,
+        report.total_operations
+    )
+}
+
+/// One line per destination per run — the run history the rows do not show.
+fn log_destination(task: &SyncTask, status: &DestinationSyncStatus) {
+    let name = task
+        .destinations
+        .iter()
+        .find(|destination| destination.id == status.destination_id)
+        .map_or("?", |destination| destination.name.as_str());
+
+    match status.outcome {
+        SyncOutcome::Failed | SyncOutcome::NeedsConfirmation => tracing::warn!(
+            "Sync '{}' → '{}': {:?} · {}",
+            task.name,
+            name,
+            status.outcome,
+            status.error.as_deref().unwrap_or("")
+        ),
+        _ => tracing::info!(
+            "Sync '{}' → '{}': {:?} · {} copied, {} in use",
+            task.name,
+            name,
+            status.outcome,
+            status.files_copied,
+            status.files_deferred
+        ),
     }
 }
 
@@ -38,6 +293,7 @@ impl Render for MainView {
         let viewport = window.viewport_size() / window.scale_factor();
 
         div()
+            .relative()
             .flex()
             .flex_col()
             .w(viewport.width)
@@ -57,6 +313,30 @@ impl Render for MainView {
                     .child(self.render_sidebar(cx))
                     .child(self.render_main_pane(cx)),
             )
+            .children(self.render_modal())
+    }
+}
+
+impl MainView {
+    /// The scrim and the one dialog on it.
+    ///
+    /// It covers the title bar too, which is deliberate: while a modal is open the window
+    /// cannot be dragged, and the app should look as unavailable as it is.
+    fn render_modal(&self) -> Option<impl IntoElement> {
+        let dialog = self.dialog.as_ref()?;
+        Some(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(theme::color_with_alpha(theme::BACKDROP))
+                .child(match dialog {
+                    ActiveDialog::Confirm(entity) => entity.clone().into_any_element(),
+                    ActiveDialog::TaskEditor(entity) => entity.clone().into_any_element(),
+                }),
+        )
     }
 }
 
@@ -294,7 +574,13 @@ impl MainView {
                     .tone(ButtonTone::Secondary)
                     .glyph(Icon::Play),
             )
-            .child(Button::new("new-task", "New task").glyph(Icon::Plus))
+            .child(
+                Button::new("new-task", "New task")
+                    .glyph(Icon::Plus)
+                    .on_click(
+                        cx.listener(|view, _, window, cx| view.open_task_editor(None, window, cx)),
+                    ),
+            )
     }
 
     fn render_task_card(&self, task: &SyncTask, cx: &mut Context<Self>) -> impl IntoElement {
@@ -308,8 +594,10 @@ impl MainView {
             .iter()
             .map(|destination| {
                 self.render_destination_row(
+                    id,
                     destination,
                     self.workspace.statuses().get(&destination.id),
+                    cx,
                 )
             })
             .collect();
@@ -423,6 +711,11 @@ impl MainView {
                                             Icon::Stop,
                                         )
                                         .tone(IconButtonTone::Danger)
+                                        .on_click(
+                                            cx.listener(move |view, _, _, cx| {
+                                                view.stop_task(id, cx)
+                                            }),
+                                        )
                                     } else {
                                         IconButton::new(
                                             SharedString::from(format!("run-{id}")),
@@ -430,6 +723,11 @@ impl MainView {
                                         )
                                         .tone(IconButtonTone::Run)
                                         .disabled(task.destinations.is_empty())
+                                        .on_click(
+                                            cx.listener(move |view, _, _, cx| {
+                                                view.run_task(id, cx)
+                                            }),
+                                        )
                                     })
                                     .child(IconButton::new(
                                         SharedString::from(format!("add-{id}")),
@@ -440,14 +738,35 @@ impl MainView {
                                             SharedString::from(format!("edit-{id}")),
                                             Icon::Pencil,
                                         )
-                                        .glyph_size(px(15.)),
+                                        .glyph_size(px(15.))
+                                        .on_click(
+                                            cx.listener(move |view, _, window, cx| {
+                                                view.open_task_editor(Some(id), window, cx)
+                                            }),
+                                        ),
                                     )
                                     .child(
                                         IconButton::new(
                                             SharedString::from(format!("delete-{id}")),
                                             Icon::TrashCanOutline,
                                         )
-                                        .glyph_size(px(15.)),
+                                        .glyph_size(px(15.))
+                                        .on_click(
+                                            cx.listener(move |view, _, _, cx| {
+                                                let Some(task) = view.workspace.task(id) else {
+                                                    return;
+                                                };
+                                                let dialog = ConfirmDialog::delete_task(
+                                                    &task.name,
+                                                    task.destinations.len(),
+                                                );
+                                                view.open_confirm(
+                                                    dialog,
+                                                    PendingAction::DeleteTask(id),
+                                                    cx,
+                                                );
+                                            }),
+                                        ),
                                     ),
                             ),
                     ),
@@ -457,8 +776,10 @@ impl MainView {
 
     fn render_destination_row(
         &self,
+        task_id: Uuid,
         destination: &Destination,
         status: Option<&DestinationSyncStatus>,
+        cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let outcome = status.map_or(SyncOutcome::Never, |status| status.outcome);
         let (glyph, color) = outcome_appearance(outcome);
@@ -508,7 +829,13 @@ impl MainView {
                     .overflow_hidden()
                     .text_ellipsis()
                     .text_color(theme::color(color))
-                    .child(status_text(status)),
+                    // A live progress line takes the row over while the run is going.
+                    .child(
+                        self.progress
+                            .get(&id)
+                            .cloned()
+                            .unwrap_or_else(|| status_text(status)),
+                    ),
             )
             .child(
                 div()
@@ -538,7 +865,29 @@ impl MainView {
                             SharedString::from(format!("delete-dest-{id}")),
                             Icon::TrashCanOutline,
                         )
-                        .small(),
+                        .small()
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            let Some(name) = view
+                                .workspace
+                                .task(task_id)
+                                .and_then(|task| {
+                                    task.destinations
+                                        .iter()
+                                        .find(|candidate| candidate.id == id)
+                                })
+                                .map(|destination| destination.name.clone())
+                            else {
+                                return;
+                            };
+                            view.open_confirm(
+                                ConfirmDialog::delete_destination(&name),
+                                PendingAction::DeleteDestination {
+                                    task: task_id,
+                                    destination: id,
+                                },
+                                cx,
+                            );
+                        })),
                     ),
             )
     }

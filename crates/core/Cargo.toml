@@ -15,6 +15,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+# XXH3-128, the same algorithm System.IO.Hashing.XxHash128 implements.
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [target.'cfg(windows)'.dependencies]
 # The Recycle Bin (IFileOperation) and the handful of Win32 calls std does not cover:
@@ -30,4 +32,7 @@ windows-sys = { version = "0.61", features = [
 testing = []
 
 [dev-dependencies]
+# Self-dependency so the integration tests get the in-memory filesystem and its fault
+# switches, which the lib only exposes behind the `testing` feature.
+syncmaid-core = { path = ".", features = ["testing"] }
 tempfile = "3"

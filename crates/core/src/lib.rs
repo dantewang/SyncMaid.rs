@@ -6,6 +6,7 @@
 pub mod filtering;
 pub mod io;
 pub mod model;
+pub mod sync;
 pub mod triggers;
 
 mod text;

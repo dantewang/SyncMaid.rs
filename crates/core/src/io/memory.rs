@@ -34,6 +34,9 @@ pub struct Faults {
     /// Writes land, but with byte 0 flipped: same length, different content. Only a content
     /// check can see this.
     pub corrupt_writes: bool,
+    /// Writes report success but quietly drop their last byte — a short write, the dominant
+    /// corruption mode, which the always-on length check has to catch.
+    pub truncate_writes: bool,
     /// Writes to paths containing this fragment fail.
     pub fail_write_path_fragment: Option<String>,
     /// Reads of paths containing this fragment fail.
@@ -136,6 +139,22 @@ impl InMemoryFileSystem {
     pub fn add_directory(&self, path: impl AsRef<Path>) -> &Self {
         let mut state = self.lock();
         state.ensure_directory_chain(path.as_ref(), Utc::now());
+        drop(state);
+        self
+    }
+
+    /// Adds a directory with an explicit modified time, for tests about time reconciliation.
+    pub fn add_directory_at(
+        &self,
+        path: impl AsRef<Path>,
+        last_write_time_utc: DateTime<Utc>,
+    ) -> &Self {
+        let path = path.as_ref();
+        let mut state = self.lock();
+        state.ensure_directory_chain(path, last_write_time_utc);
+        if let Some(entry) = state.directories.get_mut(&key_of(path)) {
+            entry.last_write_time_utc = crate::io::normalize_utc(last_write_time_utc);
+        }
         drop(state);
         self
     }
@@ -490,12 +509,14 @@ impl FileSystem for InMemoryFileSystem {
             },
         );
         let corrupt = state.faults.corrupt_writes;
+        let truncate = state.faults.truncate_writes;
         drop(state);
 
         Ok(Box::new(MemoryWriter {
             state: Arc::clone(&self.state),
             key: key_of(path),
             corrupt,
+            truncate,
             wrote_any: false,
         }))
     }
@@ -563,6 +584,7 @@ struct MemoryWriter {
     state: Arc<Mutex<State>>,
     key: String,
     corrupt: bool,
+    truncate: bool,
     wrote_any: bool,
 }
 
@@ -577,7 +599,15 @@ impl Write for MemoryWriter {
             .files
             .get_mut(&self.key)
             .ok_or_else(|| io::Error::other("the file being written disappeared"))?;
-        entry.contents.extend_from_slice(buffer);
+
+        // A short write reports full success and quietly drops a byte, which is exactly how a
+        // truncation looks from the caller's side.
+        let landed = if self.truncate && !buffer.is_empty() {
+            &buffer[..buffer.len() - 1]
+        } else {
+            buffer
+        };
+        entry.contents.extend_from_slice(landed);
 
         if self.corrupt && !self.wrote_any && !entry.contents.is_empty() {
             // Same length, different content: only a read-back content check can see it.

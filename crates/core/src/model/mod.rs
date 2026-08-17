@@ -10,7 +10,7 @@ mod settings;
 mod status;
 mod task;
 
-pub use destination::Destination;
+pub use destination::{Destination, DEFAULT_MASS_DELETE_THRESHOLD};
 pub use settings::AppSettings;
 pub use status::{DestinationSyncStatus, SyncOutcome};
 pub use task::SyncTask;

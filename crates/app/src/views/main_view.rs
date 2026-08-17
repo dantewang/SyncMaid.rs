@@ -20,12 +20,16 @@ use crate::components::{
 };
 use crate::state::{health_of, RunGate, Workspace};
 use crate::theme;
-use crate::views::dialogs::{ConfirmDialog, ConfirmEvent, TaskEditor, TaskEditorEvent};
+use crate::views::dialogs::{
+    ConfirmDialog, ConfirmEvent, DestinationEditor, DestinationEditorEvent, TaskEditor,
+    TaskEditorEvent,
+};
 
 /// Which modal is open, and what it will do when it says yes.
 enum ActiveDialog {
     Confirm(Entity<ConfirmDialog>),
     TaskEditor(Entity<TaskEditor>),
+    DestinationEditor(Entity<DestinationEditor>),
 }
 
 /// What a confirmation is confirming.
@@ -59,6 +63,46 @@ impl MainView {
             progress: HashMap::new(),
             dialog: None,
             dialog_subscription: None,
+        }
+    }
+
+    /// Opens one modal by name, for `SyncMaid.exe --show <dialog>`.
+    ///
+    /// Several of these sit three clicks deep; checking one should not need those three clicks.
+    pub fn show_dialog(&mut self, dialog: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let first_task = self.workspace.tasks().first().map(|task| task.id);
+        match dialog {
+            "task" => self.open_task_editor(None, window, cx),
+            "task-edit" => {
+                if let Some(id) = first_task {
+                    self.open_task_editor(Some(id), window, cx);
+                }
+            }
+            "destination" => {
+                if let Some(id) = first_task {
+                    self.open_destination_editor(id, None, window, cx);
+                }
+            }
+            "destination-edit" => {
+                if let Some((task, destination)) = self
+                    .workspace
+                    .tasks()
+                    .first()
+                    .and_then(|task| Some((task.id, task.destinations.first()?.id)))
+                {
+                    self.open_destination_editor(task, Some(destination), window, cx);
+                }
+            }
+            "confirm" => {
+                if let Some(id) = first_task {
+                    let Some(task) = self.workspace.task(id) else {
+                        return;
+                    };
+                    let confirm = ConfirmDialog::delete_task(&task.name, task.destinations.len());
+                    self.open_confirm(confirm, PendingAction::DeleteTask(id), cx);
+                }
+            }
+            other => tracing::warn!("no dialog called {other:?}"),
         }
     }
 
@@ -103,6 +147,64 @@ impl MainView {
         ));
         self.dialog = Some(ActiveDialog::TaskEditor(editor));
         cx.notify();
+    }
+
+    fn open_destination_editor(
+        &mut self,
+        task_id: Uuid,
+        destination_id: Option<Uuid>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(task) = self.workspace.task(task_id).cloned() else {
+            return;
+        };
+        let tasks = self.workspace.tasks().to_vec();
+        let existing = destination_id
+            .and_then(|id| {
+                task.destinations
+                    .iter()
+                    .find(|candidate| candidate.id == id)
+            })
+            .cloned();
+
+        let editor = cx.new(|cx| match &existing {
+            Some(destination) => DestinationEditor::edit(&task, destination, tasks, window, cx),
+            None => DestinationEditor::new_destination(&task, tasks, window, cx),
+        });
+
+        self.dialog_subscription = Some(cx.subscribe(
+            &editor,
+            move |view, _, event: &DestinationEditorEvent, cx| match event {
+                DestinationEditorEvent::Saved(destination) => {
+                    view.save_destination(task_id, (**destination).clone());
+                    view.close_dialog(cx);
+                }
+                DestinationEditorEvent::Cancelled => view.close_dialog(cx),
+            },
+        ));
+        self.dialog = Some(ActiveDialog::DestinationEditor(editor));
+        cx.notify();
+    }
+
+    /// Replaces the destination with the same id, or appends it.
+    ///
+    /// Appending rather than inserting matters for a Move task: its destinations are an
+    /// ordered rule list where the first match wins, so a new rule goes last, where it can
+    /// only take what the rules above it left.
+    fn save_destination(&mut self, task_id: Uuid, destination: syncmaid_core::model::Destination) {
+        let Some(mut task) = self.workspace.task(task_id).cloned() else {
+            return;
+        };
+        match task
+            .destinations
+            .iter_mut()
+            .find(|existing| existing.id == destination.id)
+        {
+            Some(existing) => *existing = destination,
+            None => task.destinations.push(destination),
+        }
+        self.workspace.upsert_task(task);
     }
 
     fn open_confirm(
@@ -282,15 +384,10 @@ fn log_destination(task: &SyncTask, status: &DestinationSyncStatus) {
 
 impl Render for MainView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Pinned to the viewport in *layout* units.
-        //
-        // `viewport_size` reports device pixels while everything laid out here is logical, so
-        // on a scaled display the difference is the scale factor — and inheriting it through
-        // `size_full` makes every row that much too wide. Nothing looks broken at first: the
-        // backgrounds still fill the window. What goes is each row's last children, because a
-        // `flex_1` sibling grows into the surplus and pushes them past the edge — which is to
-        // say every button on the right-hand side of the app.
-        let viewport = window.viewport_size() / window.scale_factor();
+        // Pinned to the viewport, in the units gpui lays out in — which is what
+        // `viewport_size` already reports. Dividing it by the scale factor was a mistake that
+        // painted the whole UI into the top-left two-thirds of the window on a scaled display.
+        let viewport = window.viewport_size();
 
         div()
             .relative()
@@ -306,7 +403,6 @@ impl Render for MainView {
                 div()
                     .flex()
                     .flex_row()
-                    .w_full()
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
@@ -335,6 +431,7 @@ impl MainView {
                 .child(match dialog {
                     ActiveDialog::Confirm(entity) => entity.clone().into_any_element(),
                     ActiveDialog::TaskEditor(entity) => entity.clone().into_any_element(),
+                    ActiveDialog::DestinationEditor(entity) => entity.clone().into_any_element(),
                 }),
         )
     }
@@ -347,7 +444,6 @@ impl MainView {
             .flex()
             .flex_row()
             .items_center()
-            .w_full()
             .h(theme::layout::title_bar_height())
             .child(
                 div()
@@ -729,10 +825,17 @@ impl MainView {
                                             }),
                                         )
                                     })
-                                    .child(IconButton::new(
-                                        SharedString::from(format!("add-{id}")),
-                                        Icon::Plus,
-                                    ))
+                                    .child(
+                                        IconButton::new(
+                                            SharedString::from(format!("add-{id}")),
+                                            Icon::Plus,
+                                        )
+                                        .on_click(
+                                            cx.listener(move |view, _, window, cx| {
+                                                view.open_destination_editor(id, None, window, cx)
+                                            }),
+                                        ),
+                                    )
                                     .child(
                                         IconButton::new(
                                             SharedString::from(format!("edit-{id}")),
@@ -858,7 +961,12 @@ impl MainView {
                             SharedString::from(format!("edit-dest-{id}")),
                             Icon::Pencil,
                         )
-                        .small(),
+                        .small()
+                        .on_click(cx.listener(
+                            move |view, _, window, cx| {
+                                view.open_destination_editor(task_id, Some(id), window, cx)
+                            },
+                        )),
                     )
                     .child(
                         IconButton::new(

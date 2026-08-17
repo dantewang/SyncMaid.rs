@@ -5,10 +5,14 @@
 
 mod selftest;
 
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Result;
-use gpui::{px, size, App, AppContext as _, Application, Bounds, WindowBounds, WindowOptions};
+use gpui::{
+    px, size, App, AppContext as _, Application, Bounds, Entity, WindowBounds, WindowOptions,
+};
 use gpui_component::{Root, TitleBar};
 use syncmaid::platform::tray::{TrayCommand, TrayLabels};
 use syncmaid::state::Workspace;
@@ -22,7 +26,17 @@ const WINDOW_SIZE: (f32, f32) = (940., 620.);
 const WINDOW_MIN_SIZE: (f32, f32) = (640., 480.);
 
 fn main() {
-    let self_test = std::env::args().any(|argument| argument == "--self-test-tray");
+    let arguments: Vec<String> = std::env::args().collect();
+    let self_test = arguments
+        .iter()
+        .any(|argument| argument == "--self-test-tray");
+    // `--show <dialog>` opens straight into one modal. A development affordance: several of
+    // these are three clicks deep, and checking one should not need those three clicks.
+    let show = arguments
+        .iter()
+        .position(|argument| argument == "--show")
+        .and_then(|index| arguments.get(index + 1))
+        .cloned();
 
     // Portable: everything SyncMaid writes lives in a Data folder beside the executable, so
     // the whole app is a folder you can copy to a USB stick.
@@ -38,8 +52,14 @@ fn main() {
             gpui_component::init(cx);
 
             let workspace = Workspace::load(Arc::clone(&file_system), &config);
-            let window = open_main_window(workspace, Arc::clone(&file_system), cx)
+            let (window, view) = open_main_window(workspace, Arc::clone(&file_system), cx)
                 .expect("open the main window");
+
+            if let Some(dialog) = show.clone() {
+                let _ = window.update(cx, |_, window, cx| {
+                    view.update(cx, |view, cx| view.show_dialog(&dialog, window, cx));
+                });
+            }
 
             match start_tray(cx, window) {
                 Ok(()) => {}
@@ -54,59 +74,42 @@ fn main() {
         });
 }
 
-/// The display scale, as a multiplier on the 96-DPI baseline.
-///
-/// `WindowOptions::window_bounds` is in device pixels while layout is in logical ones, so on a
-/// scaled display an unscaled request opens a window too small for the content it was sized
-/// for — the right-hand buttons fall off the edge.
-fn display_scale() -> f32 {
-    #[cfg(windows)]
-    {
-        // SAFETY: no arguments, no state, and it cannot fail — an unknown display reports 96.
-        let dpi = unsafe { windows_sys::Win32::UI::HiDpi::GetDpiForSystem() };
-        if dpi == 0 {
-            1.0
-        } else {
-            dpi as f32 / 96.0
-        }
-    }
-    #[cfg(not(windows))]
-    {
-        1.0
-    }
-}
-
 fn open_main_window(
     workspace: Workspace,
     file_system: Arc<dyn FileSystem>,
     cx: &mut App,
-) -> Result<gpui::WindowHandle<Root>> {
-    let scale = display_scale();
-    let bounds = Bounds::centered(
-        None,
-        size(px(WINDOW_SIZE.0 * scale), px(WINDOW_SIZE.1 * scale)),
-        cx,
-    );
+) -> Result<(gpui::WindowHandle<Root>, Entity<MainView>)> {
+    let captured: Rc<RefCell<Option<Entity<MainView>>>> = Rc::default();
+    // Logical pixels: gpui applies the display scale itself. Scaling the request here as well
+    // opens a window that is scale-times too big, with the UI painting its true logical size
+    // into the top-left corner of it.
+    let bounds = Bounds::centered(None, size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)), cx);
 
     let handle = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitleBar::title_bar_options()),
-            window_min_size: Some(size(
-                px(WINDOW_MIN_SIZE.0 * scale),
-                px(WINDOW_MIN_SIZE.1 * scale),
-            )),
+            window_min_size: Some(size(px(WINDOW_MIN_SIZE.0), px(WINDOW_MIN_SIZE.1))),
             app_id: Some("SyncMaid".into()),
             ..Default::default()
         },
-        |window, cx| {
-            // Root is what gives the window its dialog, sheet and notification layers.
-            let view: gpui::AnyView = cx.new(|_| MainView::new(workspace, file_system)).into();
-            cx.new(|cx| Root::new(view, window, cx))
+        {
+            let captured = Rc::clone(&captured);
+            move |window, cx| {
+                let view = cx.new(|_| MainView::new(workspace, file_system));
+                *captured.borrow_mut() = Some(view.clone());
+                // Root is what gives the window its dialog, sheet and notification layers.
+                let any: gpui::AnyView = view.into();
+                cx.new(|cx| Root::new(any, window, cx))
+            }
         },
     )?;
 
-    Ok(handle)
+    let view = captured
+        .borrow_mut()
+        .take()
+        .expect("the window built its view");
+    Ok((handle, view))
 }
 
 /// Wires the tray to the window: its commands arrive on a channel from the tray's own thread

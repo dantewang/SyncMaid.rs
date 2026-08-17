@@ -51,3 +51,4 @@ notify = "8.2.0"
 syncmaid-core = { workspace = true, features = ["testing"] }
 tempfile = "3.27.0"
 
+

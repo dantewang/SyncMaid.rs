@@ -8,9 +8,11 @@
 //! would see it.
 
 mod confirm;
+mod destination_editor;
 mod task_editor;
 
 pub use confirm::{ConfirmDialog, ConfirmEvent};
+pub use destination_editor::{DestinationEditor, DestinationEditorEvent};
 pub use task_editor::{TaskEditor, TaskEditorEvent};
 
 use gpui::{div, prelude::*, px, Div, Pixels};

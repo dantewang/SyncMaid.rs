@@ -9,6 +9,7 @@
 
 mod badge;
 mod button;
+mod checkbox;
 mod choice_card;
 mod hint_box;
 mod icon;
@@ -22,6 +23,7 @@ pub(crate) type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 
 
 pub use badge::{Badge, BadgeTone};
 pub use button::{Button, ButtonTone};
+pub use checkbox::Checkbox;
 pub use choice_card::ChoiceCard;
 pub use hint_box::{HintBox, HintTone};
 pub use icon::{icon, Icon};

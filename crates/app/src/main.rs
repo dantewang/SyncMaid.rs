@@ -44,6 +44,17 @@ fn main() {
     services::logging::install(&config.log_path());
     tracing::info!(directory = %config.directory().display(), "SyncMaid starting");
 
+    // Before the window, before the triggers: a second copy over the same Data folder would
+    // race the first on every file it writes. The copy already running has been asked to show
+    // itself, so the click that started this one still did something.
+    let instance = match platform::single_instance::acquire(config.directory()) {
+        platform::single_instance::Launch::First(instance) => instance,
+        platform::single_instance::Launch::Another => {
+            tracing::info!("another copy of this install is already running; showing it instead");
+            return;
+        }
+    };
+
     let file_system: Arc<dyn FileSystem> = Arc::new(PhysicalFileSystem::new());
 
     Application::new()
@@ -72,6 +83,8 @@ fn main() {
                 // from the window. Refusing to start over it would be the worse trade.
                 Err(error) => eprintln!("the tray could not be started: {error:#}"),
             }
+
+            answer_later_launches(cx, window, instance.knock.clone());
 
             if self_test {
                 selftest::run_tray_gate(window, cx);
@@ -136,6 +149,30 @@ fn close_to_tray(window: gpui::WindowHandle<Root>, view: Entity<MainView>, cx: &
             !hide
         });
     });
+}
+
+/// Brings the window forward when someone launches this install again.
+///
+/// Starting an app that is already running, hidden in the tray, looks like nothing happening.
+/// Showing the window is what the second launch almost always meant.
+fn answer_later_launches(
+    cx: &mut App,
+    window: gpui::WindowHandle<Root>,
+    knocks: flume::Receiver<()>,
+) {
+    cx.spawn(async move |cx| {
+        while knocks.recv_async().await.is_ok() {
+            let shown = cx.update(|cx| {
+                let _ = window.update(cx, |_, window, _| {
+                    platform::window_visibility::show(window);
+                });
+            });
+            if shown.is_err() {
+                return;
+            }
+        }
+    })
+    .detach();
 }
 
 /// Wires the tray to the window: its commands arrive on a channel from the tray's own thread

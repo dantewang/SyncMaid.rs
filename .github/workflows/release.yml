@@ -1,0 +1,89 @@
+name: Release
+
+# Builds a user-ready SyncMaid package and publishes it whenever a version tag (v*) appears.
+# That covers both ways of creating one:
+#   - pushing a tag:  git tag v1.2.3 && git push origin v1.2.3   (push event)
+#   - creating a release/tag on the GitHub website               (release event)
+# The publish step is idempotent, so if both fire for the same tag the assets are uploaded to
+# the existing release rather than duplicated.
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write      # create the release and upload assets
+  id-token: write      # mint the OIDC token for build-provenance attestation
+  attestations: write  # write the attestation
+
+# Serialize runs for the same tag so the push and release events cannot race.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # build.rs derives the version from the tag history
+
+      - name: Build (x86_64-pc-windows-msvc)
+        run: cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid
+
+      # The release build is what users run, so it is what the tests have to pass against.
+      - name: Test
+        run: cargo test --workspace --release
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $version = $tag.TrimStart('v')
+          $zip = "SyncMaid-$version-win-x64.zip"
+
+          # The runnable app only. No .pdb: it is larger than the executable and useless
+          # without the matching source.
+          New-Item -ItemType Directory publish | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/SyncMaid.exe publish/
+          Copy-Item LICENSE publish/ -ErrorAction SilentlyContinue
+          Copy-Item README.md publish/ -ErrorAction SilentlyContinue
+          Compress-Archive -Path publish/* -DestinationPath $zip -Force
+
+          # An integrity checksum users can verify: Get-FileHash <zip> -Algorithm SHA256
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  $zip" | Out-File "$zip.sha256" -Encoding ascii
+
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: ${{ steps.package.outputs.zip }}
+
+      - name: Publish to GitHub Releases
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $zip = '${{ steps.package.outputs.zip }}'
+          $assets = @($zip, "$zip.sha256")
+
+          # Create the release on the first run for this tag; otherwise attach to the one the
+          # release event already made.
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $assets --clobber
+          } else {
+            gh release create $tag $assets --title $tag --generate-notes
+          }

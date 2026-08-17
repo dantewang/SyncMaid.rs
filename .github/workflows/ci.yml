@@ -1,0 +1,61 @@
+name: CI
+
+# The gate the original repository never had. Everything here is what a local
+# `cargo fmt --check && cargo clippy -- -D warnings && cargo test` would tell you, run where
+# nobody can forget to run it.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes this run pointless; let it go.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # A warning nobody reads is a warning that becomes a bug. Fail on them.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    # Windows, because that is what SyncMaid is: the autostart, tray and single-instance
+    # modules only compile here, and their tests only mean anything here.
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # build.rs derives the version from the nearest tag.
+          fetch-depth: 0
+
+      - name: Install the pinned toolchain
+        shell: pwsh
+        run: |
+          # rust-toolchain.toml decides the version; this just makes sure the components
+          # it needs are there before anything asks for them.
+          rustup component add rustfmt clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features
+
+      - name: Test
+        run: cargo test --workspace

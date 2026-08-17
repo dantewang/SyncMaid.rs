@@ -78,8 +78,12 @@ filesystems cannot quietly disagree.
 cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid
 ```
 
-The executable lands in `target/x86_64-pc-windows-msvc/release/SyncMaid.exe` and is the whole
-app: the icon, the fonts and the string tables are compiled into it. Tagging `v*` runs the
-release workflow, which packages exactly that, publishes a SHA-256 sidecar beside it, and
-attests the build's provenance.
+The executable lands in `target/x86_64-pc-windows-msvc/release/SyncMaid.exe` and **is the whole
+app**: the icon, the string tables and the C runtime are all linked into it, so every DLL it
+imports ships with Windows itself. Nothing to install, nothing to copy alongside it — hand
+someone that one file and it runs.
+
+Tagging `v*` runs the release workflow, which packages exactly that, publishes a SHA-256
+sidecar beside it, and attests the build's provenance.
+
 

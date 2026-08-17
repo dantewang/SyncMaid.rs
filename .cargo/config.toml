@@ -1,0 +1,17 @@
+# Statically link the C runtime.
+#
+# Without this the executable imports VCRUNTIME140.dll, which ships with the Visual C++
+# redistributable rather than with Windows — so a portable copy would fail to start on a
+# machine that happens not to have it, with an error naming a DLL the user has never heard of.
+# A portable app that needs something installed first is not portable.
+#
+# The UCRT (the api-ms-win-crt-* imports) stays dynamic on purpose: it is part of Windows 10
+# and later, which is what SyncMaid targets, and it is serviced by Windows Update.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.i686-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

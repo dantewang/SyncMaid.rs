@@ -6,8 +6,10 @@
 
 pub mod assets;
 pub mod components;
+pub mod i18n;
 pub mod platform;
 pub mod services;
 pub mod state;
+pub mod strings;
 pub mod theme;
 pub mod views;

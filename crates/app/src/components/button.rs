@@ -5,6 +5,8 @@ use gpui::{
     SharedString, Window,
 };
 
+use gpui_component::tooltip::Tooltip;
+
 use crate::components::{icon, ClickHandler, Icon};
 use crate::theme;
 
@@ -28,6 +30,8 @@ pub struct Button {
     glyph: Option<Icon>,
     tone: ButtonTone,
     disabled: bool,
+    /// The long form, for a button whose label cannot say the whole thing.
+    tooltip: Option<SharedString>,
     on_click: Option<ClickHandler>,
 }
 
@@ -39,6 +43,7 @@ impl Button {
             glyph: None,
             tone: ButtonTone::Primary,
             disabled: false,
+            tooltip: None,
             on_click: None,
         }
     }
@@ -55,6 +60,11 @@ impl Button {
 
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    pub fn tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(tooltip.into());
         self
     }
 
@@ -106,6 +116,13 @@ impl RenderOnce for Button {
                 element.child(icon(glyph, px(15.), theme::color(foreground)))
             })
             .child(self.label);
+
+        // Before the disabled branch: a disabled button keeps its tooltip, because the tooltip
+        // is often the reason it is disabled.
+        if let Some(tooltip) = self.tooltip {
+            element =
+                element.tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx));
+        }
 
         if self.disabled {
             element.opacity(0.4)

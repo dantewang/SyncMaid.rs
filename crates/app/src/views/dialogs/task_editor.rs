@@ -16,6 +16,7 @@ use crate::components::{
     Button, ButtonTone, ChoiceCard, HintBox, HintTone, Icon, Segment, SegmentOption,
 };
 use crate::state::source_conflict;
+use crate::strings;
 use crate::views::dialogs::{dialog_card, dialog_footer, dialog_title, field_label};
 
 /// What the editor decided.
@@ -153,7 +154,7 @@ impl TaskEditor {
             source: cx.new(|cx| {
                 InputState::new(window, cx)
                     .default_value(source_path.to_owned())
-                    .placeholder("The folder SyncMaid watches")
+                    .placeholder(strings::task_editor_source_placeholder())
             }),
             cron: cx.new(|cx| {
                 InputState::new(window, cx)
@@ -265,7 +266,7 @@ impl TaskEditor {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Choose the source folder".into()),
+            prompt: Some(strings::dialog_select_source_folder().into()),
         });
         let _ = window;
 
@@ -311,15 +312,15 @@ impl Render for TaskEditor {
         let can_save = self.can_save(cx);
 
         dialog_card(px(470.))
-            .child(dialog_title("Task"))
+            .child(dialog_title(strings::task_editor_title()))
             .child(
                 div()
-                    .child(field_label("Name"))
+                    .child(field_label(strings::common_name_label()))
                     .child(Input::new(&self.name)),
             )
             .child(
                 div()
-                    .child(field_label("Source folder"))
+                    .child(field_label(strings::task_editor_source_folder_label()))
                     .child(
                         div()
                             .flex()
@@ -327,7 +328,7 @@ impl Render for TaskEditor {
                             .gap(px(8.))
                             .child(div().flex_1().min_w_0().child(Input::new(&self.source)))
                             .child(
-                                Button::new("browse-source", "Browse")
+                                Button::new("browse-source", strings::common_browse())
                                     .tone(ButtonTone::Secondary)
                                     .glyph(Icon::FolderOutline)
                                     .on_click(cx.listener(|editor, _, window, cx| {
@@ -336,20 +337,23 @@ impl Render for TaskEditor {
                             ),
                     )
                     .when_some(conflict, |element, other| {
-                        element.child(div().pt(px(6.)).child(
-                            HintBox::new(format!(
-                                "This folder overlaps the source of task \"{other}\" — tasks \
-                                 never share sources."
-                            ))
-                            .tone(HintTone::Danger),
-                        ))
+                        element.child(
+                            div().pt(px(6.)).child(
+                                HintBox::new(strings::task_editor_source_overlap_hint_format(
+                                    other,
+                                ))
+                                .tone(HintTone::Danger),
+                            ),
+                        )
                     })
                     .when(missing_folder, |element| {
                         // Advisory, not blocking: the user may be setting up ahead of the drive.
-                        element.child(div().pt(px(6.)).child(
-                            HintBox::new("This folder doesn't exist yet. Nothing will sync until it does.")
-                                .tone(HintTone::Warning),
-                        ))
+                        element.child(
+                            div().pt(px(6.)).child(
+                                HintBox::new(strings::task_editor_missing_folder_hint())
+                                    .tone(HintTone::Warning),
+                            ),
+                        )
                     }),
             )
             .child(self.render_kind(cx))
@@ -357,14 +361,14 @@ impl Render for TaskEditor {
             .child(
                 dialog_footer()
                     .child(
-                        Button::new("task-cancel", "Cancel")
+                        Button::new("task-cancel", strings::common_cancel())
                             .tone(ButtonTone::Secondary)
-                            .on_click(cx.listener(|_, _, _, cx| {
-                                cx.emit(TaskEditorEvent::Cancelled)
-                            })),
+                            .on_click(
+                                cx.listener(|_, _, _, cx| cx.emit(TaskEditorEvent::Cancelled)),
+                            ),
                     )
                     .child(
-                        Button::new("task-save", "Save task")
+                        Button::new("task-save", strings::task_editor_save())
                             .disabled(!can_save)
                             .on_click(cx.listener(|editor, _, _, cx| editor.save(cx))),
                     ),
@@ -378,7 +382,7 @@ impl TaskEditor {
         let kind = self.kind;
 
         div()
-            .child(field_label("What this task does"))
+            .child(field_label(strings::task_editor_kind_label()))
             .child(
                 div()
                     .flex()
@@ -388,8 +392,8 @@ impl TaskEditor {
                         ChoiceCard::new(
                             "kind-sync",
                             Icon::Sync,
-                            "Sync",
-                            "Copy to one or more destinations. The source is never changed.",
+                            strings::enum_sync_task_kind_sync(),
+                            strings::task_editor_kind_sync_desc(),
                         )
                         .selected(kind == SyncTaskKind::Sync)
                         .disabled(locked)
@@ -402,8 +406,8 @@ impl TaskEditor {
                         ChoiceCard::new(
                             "kind-move",
                             Icon::CallSplit,
-                            "Move",
-                            "File the source out into ordered rules. The source empties.",
+                            strings::enum_sync_task_kind_move(),
+                            strings::task_editor_kind_move_desc(),
                         )
                         .selected(kind == SyncTaskKind::Move)
                         .disabled(locked)
@@ -414,9 +418,11 @@ impl TaskEditor {
                     ),
             )
             .when(locked, |element| {
-                element.child(div().pt(px(6.)).child(HintBox::new(
-                    "A task's kind is fixed once it has destinations. Remove them all to change it.",
-                )))
+                element.child(
+                    div()
+                        .pt(px(6.))
+                        .child(HintBox::new(strings::task_editor_kind_locked_hint())),
+                )
             })
     }
 
@@ -424,14 +430,16 @@ impl TaskEditor {
         let choice = self.trigger;
 
         div()
-            .child(field_label("What starts it"))
+            .child(field_label(strings::task_editor_trigger_label()))
             .child(
                 Segment::new(
                     "trigger",
                     vec![
-                        SegmentOption::new("Manual").glyph(Icon::CursorDefaultClickOutline),
-                        SegmentOption::new("Scheduled").glyph(Icon::ClockOutline),
-                        SegmentOption::new("Watch").glyph(Icon::Eye),
+                        SegmentOption::new(strings::task_trigger_manual())
+                            .glyph(Icon::CursorDefaultClickOutline),
+                        SegmentOption::new(strings::task_editor_trigger_scheduled())
+                            .glyph(Icon::ClockOutline),
+                        SegmentOption::new(strings::task_editor_trigger_watch()).glyph(Icon::Eye),
                     ],
                     choice.index(),
                 )
@@ -445,46 +453,49 @@ impl TaskEditor {
                 element.child(
                     div()
                         .pt(px(12.))
-                        .child(field_label("Cron expression"))
+                        .child(field_label(strings::task_editor_cron_label()))
                         .child(Input::new(&self.cron))
-                        .child(div().pt(px(5.)).child(match state {
-                            CronState::Empty => HintBox::new(
-                                "Five fields: minute, hour, day of month, month, day of week.",
-                            ),
-                            CronState::Invalid => {
-                                HintBox::new("That isn't a cron expression SyncMaid can read.")
-                                    .tone(HintTone::Danger)
-                            }
-                            CronState::NeverOccurs => HintBox::new(
-                                "This is valid, but it has no upcoming run — nothing will happen.",
-                            )
-                            .tone(HintTone::Warning),
-                            CronState::Next(when) => HintBox::new(format!(
-                                "Next run (local time): {when}"
-                            ))
-                            .glyph(Icon::ClockOutline),
-                        })),
+                        .child(
+                            div().pt(px(5.)).child(match state {
+                                CronState::Empty => {
+                                    HintBox::new(strings::task_editor_cron_fields())
+                                }
+                                CronState::Invalid => {
+                                    HintBox::new(strings::task_editor_cron_invalid())
+                                        .tone(HintTone::Danger)
+                                }
+                                CronState::NeverOccurs => {
+                                    HintBox::new(strings::task_editor_cron_no_upcoming())
+                                        .tone(HintTone::Warning)
+                                }
+                                CronState::Next(when) => {
+                                    HintBox::new(strings::task_editor_cron_next_run_format(when))
+                                        .glyph(Icon::ClockOutline)
+                                }
+                            }),
+                        ),
                 )
             })
             .when(choice == TriggerChoice::Watch, |element| {
                 element.child(
                     div()
                         .pt(px(12.))
-                        .child(field_label("Quiet period"))
+                        .child(field_label(strings::task_editor_settle_label()))
                         .child(
                             div()
                                 .flex()
                                 .flex_row()
                                 .items_center()
                                 .gap(px(8.))
-                                .child("Run after")
+                                .child(strings::task_editor_settle_prefix())
                                 .child(div().w(px(90.)).child(Input::new(&self.settle)))
-                                .child("seconds without changes"),
+                                .child(strings::task_editor_settle_suffix()),
                         )
-                        .child(div().pt(px(6.)).child(HintBox::new(
-                            "Every fresh change restarts the wait, so one burst of saves is one \
-                             run. Set it longer than the slowest save the folder sees.",
-                        ))),
+                        .child(
+                            div()
+                                .pt(px(6.))
+                                .child(HintBox::new(strings::task_editor_settle_hint())),
+                        ),
                 )
             })
     }

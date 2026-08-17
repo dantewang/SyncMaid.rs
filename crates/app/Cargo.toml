@@ -40,17 +40,21 @@ tray-icon = "0.24"
 windows-registry = "0.6.1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_System_Threading",
     "Win32_UI_WindowsAndMessaging",
 ] }
 
 [build-dependencies]
+serde_json.workspace = true
 winresource = "0.1"
 
 [dev-dependencies]
 notify = "8.2.0"
 syncmaid-core = { workspace = true, features = ["testing"] }
 tempfile = "3.27.0"
+
+
 
 
 

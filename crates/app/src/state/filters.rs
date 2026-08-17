@@ -15,6 +15,8 @@
 
 use syncmaid_core::filtering::FilterRule;
 
+use crate::strings;
+
 /// Which of the three rule kinds the editor offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterKind {
@@ -92,11 +94,12 @@ impl FilterEntry {
     /// What the preview line calls this rule.
     fn describe(&self) -> String {
         let body = match self.kind {
+            // A trailing slash is what makes a path read as a folder rather than a file.
             FilterKind::Path => format!("{}/", self.pattern.trim_end_matches('/')),
             FilterKind::Extension | FilterKind::Wildcard => self.pattern.clone(),
         };
         if self.excluded {
-            format!("not {body}")
+            format!("{}{body}", strings::filter_not())
         } else {
             body
         }
@@ -163,7 +166,13 @@ impl FilterGroup {
     }
 
     fn describe(&self, parenthesise: bool) -> String {
-        let joiner = if self.match_all { " and " } else { " or " };
+        // The connectives carry their own spacing — " and " in English, none in CJK — so
+        // joining concatenates them verbatim.
+        let joiner = if self.match_all {
+            strings::filter_and()
+        } else {
+            strings::filter_or()
+        };
         let body = self
             .rules
             .iter()
@@ -191,7 +200,7 @@ impl Summary {
     /// The selection, or a short stand-in saying there is none.
     pub fn text(&self) -> &str {
         match self {
-            Self::Nothing => "nothing yet",
+            Self::Nothing => strings::filter_nothing(),
             Self::Selection(what) => what,
         }
     }
@@ -301,8 +310,8 @@ impl FilterModel {
     /// synced, and it updates as the rules do.
     pub fn describe(&self) -> String {
         match self.summary() {
-            Summary::Nothing => "No rules yet — nothing will be synced.".to_owned(),
-            Summary::Selection(what) => format!("Syncs: {what}"),
+            Summary::Nothing => strings::filter_no_rules_preview().to_owned(),
+            Summary::Selection(what) => strings::filter_syncs_preview_format(what),
         }
     }
 
@@ -310,12 +319,10 @@ impl FilterModel {
     /// already on screen (a workspace row's one-line summary).
     pub fn summary(&self) -> Summary {
         if self.all_files {
-            return Summary::Selection("all files".to_owned());
+            return Summary::Selection(strings::filter_all_files_inline().to_owned());
         }
         if !self.opaque.is_empty() {
-            return Summary::Selection(
-                "rules this editor can't show (kept as they are)".to_owned(),
-            );
+            return Summary::Selection(strings::filter_opaque_rules().to_owned());
         }
 
         let described: Vec<String> = self
@@ -330,9 +337,9 @@ impl FilterModel {
         }
 
         let joiner = if self.match_all_groups {
-            " and "
+            strings::filter_and()
         } else {
-            " or "
+            strings::filter_or()
         };
         Summary::Selection(described.join(joiner))
     }

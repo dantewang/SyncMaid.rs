@@ -44,6 +44,8 @@ pub struct Segment {
     selected: usize,
     /// The tighter variant used inside a filter group's header.
     small: bool,
+    /// Lets the choices run onto a second line instead of squeezing onto one.
+    wrap: bool,
     /// Segments stretch to fill their row by default; a small one hugs its content.
     on_select: Option<SelectHandler>,
 }
@@ -55,11 +57,22 @@ impl Segment {
             options,
             selected,
             small: false,
+            wrap: false,
             on_select: None,
         }
     }
 
     pub fn small(mut self) -> Self {
+        self.small = true;
+        self
+    }
+
+    /// Wraps onto more lines rather than crushing the choices together.
+    ///
+    /// For the one control with five of them: five equal shares of a 440 px card leaves no room
+    /// for any of the labels.
+    pub fn wrapping(mut self) -> Self {
+        self.wrap = true;
         self.small = true;
         self
     }
@@ -73,6 +86,7 @@ impl Segment {
 impl RenderOnce for Segment {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let small = self.small;
+        let wrap = self.wrap;
         let selected = self.selected;
         let handler = self.on_select.clone();
         let base_id = self.id;
@@ -80,6 +94,7 @@ impl RenderOnce for Segment {
         div()
             .flex()
             .flex_row()
+            .when(wrap, |element| element.flex_wrap())
             .gap(px(if small { 6. } else { 8. }))
             .children(
                 self.options

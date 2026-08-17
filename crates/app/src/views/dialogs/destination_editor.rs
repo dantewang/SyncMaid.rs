@@ -21,8 +21,8 @@ use crate::components::{
     IconButtonTone, Segment, SegmentOption,
 };
 use crate::state::{destination_conflict, FilterEntry, FilterGroup, FilterKind, FilterModel};
-use crate::theme;
 use crate::views::dialogs::field_label;
+use crate::{strings, theme};
 
 /// See the module docs.
 pub struct DestinationEditor {
@@ -87,12 +87,12 @@ impl DestinationEditor {
             name: cx.new(|cx| {
                 InputState::new(window, cx)
                     .default_value(destination.name.clone())
-                    .placeholder("Optional — defaults to the folder's name")
+                    .placeholder(strings::dest_editor_name_placeholder())
             }),
             path: cx.new(|cx| {
                 InputState::new(window, cx)
                     .default_value(destination.local_path().to_owned())
-                    .placeholder("Where the files go")
+                    .placeholder(strings::dest_editor_path_placeholder())
             }),
             threshold: cx.new(|cx| {
                 InputState::new(window, cx)
@@ -102,7 +102,7 @@ impl DestinationEditor {
                 .map(|_| {
                     cx.new(|cx| {
                         InputState::new(window, cx)
-                            .placeholder("e.g. photos/2024, jpg, or **/ChatGPT*.png")
+                            .placeholder(strings::dest_editor_pattern_placeholder())
                     })
                 })
                 .collect(),
@@ -203,15 +203,12 @@ impl DestinationEditor {
     fn blocked_reason(&self, cx: &App) -> Option<String> {
         let path = self.path_text(cx);
         if path.is_empty() {
-            return Some("Choose a destination folder.".into());
+            return Some(strings::dest_editor_needs_folder().into());
         }
 
         // Task shape: a destination never sits inside its own source, and never contains it.
         if paths_overlap(Path::new(&path), Path::new(&self.source_path)) {
-            return Some(
-                "Destination must be a separate folder outside the source (and not contain it)."
-                    .into(),
-            );
+            return Some(strings::dest_editor_needs_separate_folder().into());
         }
 
         if let Some(conflict) = self.overlapping_destination(&path) {
@@ -219,7 +216,7 @@ impl DestinationEditor {
         }
 
         if self.shows_filters() && self.filters.selects_nothing() {
-            return Some("No rules yet — this destination would sync nothing.".into());
+            return Some(strings::dest_editor_needs_filter_rule().into());
         }
 
         None
@@ -233,9 +230,8 @@ impl DestinationEditor {
             other.id != self.destination_id
                 && paths_overlap(Path::new(other.local_path()), candidate)
         }) {
-            return Some(format!(
-                "This folder overlaps \"{}\" in this task — destinations never overlap.",
-                sibling.name
+            return Some(strings::dest_editor_sibling_overlap_hint_format(
+                &sibling.name,
             ));
         }
 
@@ -248,10 +244,7 @@ impl DestinationEditor {
             (Some(self.task_id), None)
         };
         destination_conflict(&self.tasks, task, destination, path).map(|conflict| {
-            format!(
-                "This folder overlaps a destination of task \"{}\" — destinations never overlap.",
-                conflict.task_name
-            )
+            strings::dest_editor_destination_overlap_hint_format(conflict.task_name)
         })
     }
 
@@ -292,7 +285,7 @@ impl DestinationEditor {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Choose the destination folder".into()),
+            prompt: Some(strings::dialog_select_destination_folder().into()),
         });
 
         cx.spawn_in(window, async move |editor, cx| {
@@ -338,7 +331,7 @@ impl DestinationEditor {
         self.filters.groups.push(FilterGroup::default());
         self.group_kinds.push(FilterKind::default());
         self.group_inputs.push(cx.new(|cx| {
-            InputState::new(window, cx).placeholder("e.g. photos/2024, jpg, or **/ChatGPT*.png")
+            InputState::new(window, cx).placeholder(strings::dest_editor_pattern_placeholder())
         }));
         cx.notify();
     }
@@ -351,6 +344,20 @@ impl DestinationEditor {
         self.group_kinds.remove(group);
         self.group_inputs.remove(group);
         cx.notify();
+    }
+}
+
+/// One rule as its own row reads it: the kind named, then the pattern.
+fn describe_rule(rule: &FilterEntry) -> String {
+    let body = match rule.kind {
+        FilterKind::Path => strings::filter_path_row_format(&rule.pattern),
+        FilterKind::Extension => strings::filter_extension_row_format(&rule.pattern),
+        FilterKind::Wildcard => strings::filter_wildcard_row_format(&rule.pattern),
+    };
+    if rule.excluded {
+        strings::filter_exclude_row_format(body)
+    } else {
+        body
     }
 }
 
@@ -385,7 +392,7 @@ impl DestinationEditor {
             .gap(px(16.))
             .child(
                 div()
-                    .child(field_label("Name"))
+                    .child(field_label(strings::common_name_label()))
                     .child(Input::new(&self.name)),
             )
             .child(self.render_folder(cx))
@@ -399,10 +406,7 @@ impl DestinationEditor {
                 element.child(self.render_filters(cx))
             })
             .when(self.catch_all, |element| {
-                element.child(HintBox::new(
-                    "This rule takes everything the rules above it left, so it has no file \
-                     selection of its own.",
-                ))
+                element.child(HintBox::new(strings::dest_editor_catch_all_hint()))
             })
             .child(self.render_verification(network, cx))
             .when(self.strategy == SyncStrategy::Mirror, |element| {
@@ -412,7 +416,7 @@ impl DestinationEditor {
 
     fn render_folder(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .child(field_label("Destination folder"))
+            .child(field_label(strings::dest_editor_folder_label()))
             .child(
                 div()
                     .flex()
@@ -420,7 +424,7 @@ impl DestinationEditor {
                     .gap(px(8.))
                     .child(div().flex_1().min_w_0().child(Input::new(&self.path)))
                     .child(
-                        Button::new("browse-destination", "Browse")
+                        Button::new("browse-destination", strings::common_browse())
                             .tone(ButtonTone::Secondary)
                             .glyph(Icon::FolderOutline)
                             .on_click(
@@ -428,47 +432,49 @@ impl DestinationEditor {
                             ),
                     ),
             )
-            .child(div().pt(px(6.)).child(HintBox::new(
-                "It doesn't have to exist yet — SyncMaid creates it on the first run.",
-            )))
+            .child(
+                div()
+                    .pt(px(6.))
+                    .child(HintBox::new(strings::workspace_sync_destination_hint())),
+            )
     }
 
     fn render_strategy(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let strategy = self.strategy;
-        div().child(field_label("Sync strategy")).child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(
-                    ChoiceCard::new(
-                        "strategy-mirror",
-                        Icon::Sync,
-                        "Mirror",
-                        "Make the destination identical to the source, empty folders \
-                             included. Extras are deleted.",
+        div()
+            .child(field_label(strings::dest_editor_strategy_label()))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(
+                        ChoiceCard::new(
+                            "strategy-mirror",
+                            Icon::Sync,
+                            strings::enum_sync_strategy_mirror(),
+                            strings::dest_editor_mirror_desc2(),
+                        )
+                        .selected(strategy == SyncStrategy::Mirror)
+                        .on_click(cx.listener(|editor, _, _, cx| {
+                            editor.strategy = SyncStrategy::Mirror;
+                            cx.notify();
+                        })),
                     )
-                    .selected(strategy == SyncStrategy::Mirror)
-                    .on_click(cx.listener(|editor, _, _, cx| {
-                        editor.strategy = SyncStrategy::Mirror;
-                        cx.notify();
-                    })),
-                )
-                .child(
-                    ChoiceCard::new(
-                        "strategy-add-only",
-                        Icon::Plus,
-                        "Add-only",
-                        "Copy new and changed files and never delete anything. The safe \
-                             accumulator.",
-                    )
-                    .selected(strategy == SyncStrategy::AddOnly)
-                    .on_click(cx.listener(|editor, _, _, cx| {
-                        editor.strategy = SyncStrategy::AddOnly;
-                        cx.notify();
-                    })),
-                ),
-        )
+                    .child(
+                        ChoiceCard::new(
+                            "strategy-add-only",
+                            Icon::Plus,
+                            strings::enum_sync_strategy_add_only(),
+                            strings::dest_editor_add_only_desc(),
+                        )
+                        .selected(strategy == SyncStrategy::AddOnly)
+                        .on_click(cx.listener(|editor, _, _, cx| {
+                            editor.strategy = SyncStrategy::AddOnly;
+                            cx.notify();
+                        })),
+                    ),
+            )
     }
 
     fn render_move_options(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -476,13 +482,15 @@ impl DestinationEditor {
         let collision = self.collision;
 
         div()
-            .child(field_label("Where files land"))
+            .child(field_label(strings::dest_editor_move_options_label()))
             .child(
                 Segment::new(
                     "move-layout",
                     vec![
-                        SegmentOption::new("Keep structure").glyph(Icon::FileTree),
-                        SegmentOption::new("Put them all in the folder").glyph(Icon::FolderOutline),
+                        SegmentOption::new(strings::dest_editor_keep_structure())
+                            .glyph(Icon::FileTree),
+                        SegmentOption::new(strings::dest_editor_flatten())
+                            .glyph(Icon::FolderOutline),
                     ],
                     usize::from(flatten),
                 )
@@ -495,14 +503,19 @@ impl DestinationEditor {
                 element.child(
                     div()
                         .pt(px(10.))
-                        .child(field_label("If that name is already taken"))
+                        .child(field_label(strings::dest_editor_collision_label()))
                         .child(
                             Segment::new(
                                 "collision",
                                 vec![
-                                    SegmentOption::new("Leave it in the source")
-                                        .glyph(Icon::MinusCircle),
-                                    SegmentOption::new("Add a number").glyph(Icon::ContentCopy),
+                                    SegmentOption::new(
+                                        strings::enum_file_name_collision_policy_skip(),
+                                    )
+                                    .glyph(Icon::MinusCircle),
+                                    SegmentOption::new(
+                                        strings::enum_file_name_collision_policy_suffix(),
+                                    )
+                                    .glyph(Icon::ContentCopy),
                                 ],
                                 usize::from(collision == FileNameCollisionPolicy::Suffix),
                             )
@@ -533,13 +546,14 @@ impl DestinationEditor {
             .collect();
 
         div()
-            .child(field_label("Files to sync"))
+            .child(field_label(strings::dest_editor_files_to_sync_label()))
             .child(
                 Segment::new(
                     "filter-mode",
                     vec![
-                        SegmentOption::new("All files").glyph(Icon::Asterisk),
-                        SegmentOption::new("Only matching").glyph(Icon::FilterOutline),
+                        SegmentOption::new(strings::filter_all_files()).glyph(Icon::Asterisk),
+                        SegmentOption::new(strings::dest_editor_only_matching())
+                            .glyph(Icon::FilterOutline),
                     ],
                     usize::from(!all_files),
                 )
@@ -562,8 +576,12 @@ impl DestinationEditor {
                                     Segment::new(
                                         "group-combine",
                                         vec![
-                                            SegmentOption::new("Match any group"),
-                                            SegmentOption::new("Match all groups"),
+                                            SegmentOption::new(
+                                                strings::dest_editor_match_any_group(),
+                                            ),
+                                            SegmentOption::new(
+                                                strings::dest_editor_match_all_groups(),
+                                            ),
                                         ],
                                         usize::from(self.filters.match_all_groups),
                                     )
@@ -578,7 +596,7 @@ impl DestinationEditor {
                             })
                             .children(groups)
                             .child(
-                                Button::new("add-group", "Add group")
+                                Button::new("add-group", strings::dest_editor_add_group())
                                     .tone(ButtonTone::Secondary)
                                     .glyph(Icon::Plus)
                                     .on_click(cx.listener(|editor, _, window, cx| {
@@ -630,14 +648,14 @@ impl DestinationEditor {
                         div()
                             .text_size(theme::text::small())
                             .text_color(theme::color(theme::TEXT_SECONDARY))
-                            .child("Match"),
+                            .child(strings::dest_editor_match_label()),
                     )
                     .child(
                         Segment::new(
                             SharedString::from(format!("group-{index}-mode")),
                             vec![
-                                SegmentOption::new("any rule"),
-                                SegmentOption::new("all rules"),
+                                SegmentOption::new(strings::dest_editor_any_rule()),
+                                SegmentOption::new(strings::dest_editor_all_rules()),
                             ],
                             usize::from(group.match_all),
                         )
@@ -678,9 +696,9 @@ impl DestinationEditor {
                         Segment::new(
                             SharedString::from(format!("group-{index}-kind")),
                             vec![
-                                SegmentOption::new("Path"),
-                                SegmentOption::new("Extension"),
-                                SegmentOption::new("Wildcard"),
+                                SegmentOption::new(strings::enum_filter_kind_path()),
+                                SegmentOption::new(strings::enum_filter_kind_extension()),
+                                SegmentOption::new(strings::enum_filter_kind_wildcard()),
                             ],
                             kind.index(),
                         )
@@ -701,22 +719,21 @@ impl DestinationEditor {
                             .children(self.group_inputs.get(index).map(Input::new)),
                     )
                     .child(
-                        Button::new(SharedString::from(format!("add-rule-{index}")), "Add")
-                            .glyph(Icon::Plus)
-                            .on_click(cx.listener(move |editor, _, window, cx| {
-                                editor.add_rule(index, window, cx)
-                            })),
+                        Button::new(
+                            SharedString::from(format!("add-rule-{index}")),
+                            strings::common_add(),
+                        )
+                        .glyph(Icon::Plus)
+                        .on_click(cx.listener(
+                            move |editor, _, window, cx| editor.add_rule(index, window, cx),
+                        )),
                     ),
             )
             .when(kind == FilterKind::Wildcard, |element| {
                 element.child(
                     div().pt(px(8.)).child(
-                        HintBox::new(
-                            "* is any run of characters and ? is one, neither crossing a folder; \
-                             ** spans any number of folders. A leading **/ is what makes a \
-                             pattern apply at any depth.",
-                        )
-                        .glyph(Icon::AsteriskCircleOutline),
+                        HintBox::new(strings::dest_editor_wildcard_hint())
+                            .glyph(Icon::AsteriskCircleOutline),
                     ),
                 )
             })
@@ -753,7 +770,7 @@ impl DestinationEditor {
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
-                    .child(format!("{}: {}", rule.kind.label(), rule.pattern)),
+                    .child(describe_rule(rule)),
             )
             .child(
                 IconButton::new(
@@ -767,7 +784,7 @@ impl DestinationEditor {
                 } else {
                     IconButtonTone::Neutral
                 })
-                .tooltip("Exclude what this matches instead of including it")
+                .tooltip(strings::dest_editor_exclude_tip())
                 .on_click(cx.listener(move |editor, _, _, cx| {
                     if let Some(entry) = editor
                         .filters
@@ -798,16 +815,12 @@ impl DestinationEditor {
 
     fn render_verification(&self, network: bool, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .child(field_label("Verification"))
+            .child(field_label(strings::dest_editor_verification_label()))
             .child(
                 Checkbox::new(
                     "verify-contents",
-                    "Verify file contents (xxHash) after each copy",
+                    strings::dest_editor_verify_contents(),
                     self.verify_contents,
-                )
-                .description(
-                    "Reads each copy back and compares it to the source, catching silent \
-                     corruption a length check cannot see.",
                 )
                 .on_toggle(cx.listener(|editor, _, _, cx| {
                     editor.verify_contents = !editor.verify_contents;
@@ -815,14 +828,12 @@ impl DestinationEditor {
                 })),
             )
             .when(network && self.verify_contents, |element| {
-                element.child(div().pt(px(6.)).child(
-                    HintBox::new(
-                        "This is a network location. Content verification re-reads every copied \
-                         file over the network (slower, more bandwidth). It guards against \
-                         silent corruption the network protocol does not.",
-                    )
-                    .tone(HintTone::Danger),
-                ))
+                element.child(
+                    div().pt(px(6.)).child(
+                        HintBox::new(strings::dest_editor_verify_network_warning())
+                            .tone(HintTone::Danger),
+                    ),
+                )
             })
     }
 
@@ -830,13 +841,15 @@ impl DestinationEditor {
         let confirming = self.confirm_large_deletions;
 
         div()
-            .child(field_label("When removing extra files"))
+            .child(field_label(strings::dest_editor_delete_mode_label()))
             .child(
                 Segment::new(
                     "delete-mode",
                     vec![
-                        SegmentOption::new("Recycle Bin").glyph(Icon::RecycleVariant),
-                        SegmentOption::new("Delete permanently").glyph(Icon::DeleteForeverOutline),
+                        SegmentOption::new(strings::enum_delete_mode_recycle())
+                            .glyph(Icon::RecycleVariant),
+                        SegmentOption::new(strings::enum_delete_mode_permanent())
+                            .glyph(Icon::DeleteForeverOutline),
                     ],
                     usize::from(self.delete_mode == DeleteMode::Permanent),
                 )
@@ -853,12 +866,8 @@ impl DestinationEditor {
                 div().pt(px(10.)).child(
                     Checkbox::new(
                         "confirm-large",
-                        "Confirm before a large deletion",
+                        strings::dest_editor_confirm_large_deletions(),
                         confirming,
-                    )
-                    .description(
-                        "An empty or unavailable source never deletes anything, with or without \
-                         this.",
                     )
                     .on_toggle(cx.listener(|editor, _, _, cx| {
                         editor.confirm_large_deletions = !editor.confirm_large_deletions;
@@ -875,9 +884,9 @@ impl DestinationEditor {
                         .flex_row()
                         .items_center()
                         .gap(px(8.))
-                        .child("Ask when deleting more than")
+                        .child(strings::dest_editor_ask_when_deleting_more_than())
                         .child(div().w(px(80.)).child(Input::new(&self.threshold)))
-                        .child("% of the destination"),
+                        .child(strings::dest_editor_percent_of_destination()),
                 )
             })
     }

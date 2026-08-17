@@ -20,8 +20,8 @@ use syncmaid_core::model::{DeleteMode, Destination};
 use syncmaid_core::sync::MirrorDeletePreview;
 
 use crate::components::{icon, Button, ButtonTone, Icon};
-use crate::theme;
 use crate::views::dialogs::dialog_title;
+use crate::{strings, theme};
 
 /// The window's own size. Fixed rather than sized to content: the sample list scrolls, so the
 /// window is the same shape whether three files are going or three thousand.
@@ -76,40 +76,25 @@ impl ConfirmMirrorDelete {
     }
 
     /// Why the run stopped, in the words of what is about to happen to the files.
+    ///
+    /// The two wordings are the difference between recoverable and not, and the wrong one here
+    /// is a user consenting to something else entirely.
     fn explanation(&self) -> String {
-        let files = files(self.count);
+        let count = self.count as i64;
         if self.recycle {
-            format!(
-                "Syncing \"{}\" would move {files} to the Recycle Bin, because they are no \
-                 longer in the source. That is more than this destination's threshold, so the \
-                 run stopped to ask.",
-                self.destination_name
-            )
+            strings::mirror_delete_explanation_recycle_format(&self.destination_name, count)
         } else {
-            format!(
-                "Syncing \"{}\" would permanently delete {files}, because they are no longer in \
-                 the source. That is more than this destination's threshold, so the run stopped \
-                 to ask.",
-                self.destination_name
-            )
+            strings::mirror_delete_explanation_permanent_format(&self.destination_name, count)
         }
     }
 
     fn confirm_label(&self) -> String {
         if self.recycle {
-            "Move to Recycle Bin".to_owned()
+            strings::mirror_delete_move_to_recycle_bin().to_owned()
         } else {
-            format!("Delete {}", files(self.count))
+            // The count is named on the permanent one: it is the last chance to notice it.
+            strings::mirror_delete_delete_count(self.count as i64)
         }
-    }
-}
-
-/// `1 file` / `128 files`.
-fn files(count: usize) -> String {
-    if count == 1 {
-        "1 file".to_owned()
-    } else {
-        format!("{count} files")
     }
 }
 
@@ -137,7 +122,7 @@ impl Render for ConfirmMirrorDelete {
                         px(22.),
                         theme::color(theme::WARNING),
                     ))
-                    .child(dialog_title("Review deletions")),
+                    .child(dialog_title(strings::mirror_delete_review_deletions())),
             )
             .child(
                 div()
@@ -182,7 +167,7 @@ impl Render for ConfirmMirrorDelete {
                 element.child(
                     div()
                         .text_color(theme::color(theme::TEXT_SECONDARY))
-                        .child(format!("…and {hidden} more.")),
+                        .child(strings::mirror_delete_more_format(hidden)),
                 )
             })
             .child(
@@ -193,7 +178,7 @@ impl Render for ConfirmMirrorDelete {
                     .items_center()
                     .gap(px(10.))
                     .child(
-                        Button::new("mirror-delete-keep", "Keep them")
+                        Button::new("mirror-delete-keep", strings::mirror_delete_keep_them())
                             .tone(ButtonTone::Secondary)
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.decide(MirrorDeleteDecision::Keep, window, cx)
@@ -232,7 +217,7 @@ pub fn ask(
                 // The system title bar, unlike the main window's app-drawn one: this window has
                 // to look like what it is, an alert the OS put in front of you.
                 titlebar: Some(TitlebarOptions {
-                    title: Some("SyncMaid — Review deletions".into()),
+                    title: Some(strings::mirror_delete_window_title().into()),
                     appears_transparent: false,
                     traffic_light_position: None,
                 }),

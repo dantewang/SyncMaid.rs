@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use syncmaid_core::model::{DestinationSyncStatus, SyncOutcome, SyncTask};
 use uuid::Uuid;
 
+use crate::strings;
+
 /// The card's one-line summary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Health {
@@ -24,7 +26,7 @@ pub fn health_of(task: &SyncTask, statuses: &HashMap<Uuid, DestinationSyncStatus
     if task.destinations.is_empty() {
         return Health {
             outcome: SyncOutcome::Never,
-            text: "No destinations".into(),
+            text: strings::task_health_no_destinations().into(),
         };
     }
 
@@ -45,20 +47,20 @@ pub fn health_of(task: &SyncTask, statuses: &HashMap<Uuid, DestinationSyncStatus
     if count(SyncOutcome::Running) > 0 {
         return Health {
             outcome: SyncOutcome::Running,
-            text: "Syncing…".into(),
+            text: strings::status_syncing().into(),
         };
     }
     if count(SyncOutcome::NeedsConfirmation) > 0 {
         return Health {
             outcome: SyncOutcome::NeedsConfirmation,
-            text: "Needs confirmation".into(),
+            text: strings::status_needs_confirmation().into(),
         };
     }
     let failed = count(SyncOutcome::Failed);
     if failed > 0 {
         return Health {
             outcome: SyncOutcome::Failed,
-            text: format!("{failed} of {total} failed"),
+            text: strings::task_health_failed_format(failed, total),
         };
     }
     if count(SyncOutcome::Incomplete) > 0 {
@@ -70,26 +72,26 @@ pub fn health_of(task: &SyncTask, statuses: &HashMap<Uuid, DestinationSyncStatus
             .sum();
         return Health {
             outcome: SyncOutcome::Incomplete,
-            text: format!("{in_use} in use"),
+            text: strings::task_health_files_in_use_format(in_use),
         };
     }
     if count(SyncOutcome::Success) == total {
         return Health {
             outcome: SyncOutcome::Success,
-            text: "All synced".into(),
+            text: strings::task_health_all_synced().into(),
         };
     }
     if count(SyncOutcome::Success) > 0 {
         // Some destinations have run and some have not — synced, but not all the way.
         return Health {
             outcome: SyncOutcome::Success,
-            text: "Partly synced".into(),
+            text: strings::task_health_partly_synced().into(),
         };
     }
 
     Health {
         outcome: SyncOutcome::Never,
-        text: "Never run".into(),
+        text: strings::status_never_run().into(),
     }
 }
 

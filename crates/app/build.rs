@@ -1,8 +1,17 @@
+//! Build-time work: the Windows resources, the version stamp, and the string tables.
+
+use std::collections::BTreeMap;
+use std::path::Path;
 use std::process::Command;
+
+#[path = "build/strings.rs"]
+mod strings;
 
 fn main() {
     let version = released_version();
     println!("cargo:rustc-env=SYNCMAID_VERSION={version}");
+
+    strings::generate();
 
     #[cfg(windows)]
     {
@@ -48,4 +57,11 @@ fn released_version() -> String {
         Some(text) => text.trim().trim_start_matches('v').to_owned(),
         None => std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into()),
     }
+}
+
+/// Reads one `lang/*.json` as an ordered key/value table.
+fn read_table(path: &Path) -> BTreeMap<String, String> {
+    let text = std::fs::read_to_string(path)
+        .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
+    serde_json::from_str(&text).unwrap_or_else(|error| panic!("parse {}: {error}", path.display()))
 }

@@ -15,11 +15,8 @@ use crate::components::{
     icon, Badge, BadgeTone, Button, ButtonTone, HintBox, HintTone, Icon, IconButton, IconButtonTone,
 };
 use crate::state::{self, DestinationPreview, ExtensionChip, FilterModel, Scan, Summary};
-use crate::theme;
 use crate::views::dialogs::{dialog_card, dialog_footer, dialog_title};
-
-/// The name a freshly added catch-all carries until the user renames it.
-const EVERYTHING_ELSE: &str = "Everything else";
+use crate::{strings, theme};
 
 /// What the workspace decided.
 pub enum TaskWorkspaceEvent {
@@ -64,10 +61,10 @@ impl Row {
     /// What this destination selects, in one line.
     fn summary(&self) -> String {
         if self.is_catch_all() {
-            return EVERYTHING_ELSE.to_owned();
+            return strings::workspace_everything_else().to_owned();
         }
         match FilterModel::of(&self.destination.filters).summary() {
-            Summary::Nothing => "Nothing yet".to_owned(),
+            Summary::Nothing => strings::workspace_nothing_yet().to_owned(),
             Summary::Selection(what) => what,
         }
     }
@@ -275,7 +272,7 @@ impl TaskWorkspace {
             return;
         }
         let row = Row::new(Destination::new(
-            EVERYTHING_ELSE,
+            strings::workspace_everything_else(),
             "",
             [syncmaid_core::filtering::FilterRule::AllFiles],
             SyncStrategy::Move,
@@ -377,7 +374,7 @@ impl TaskWorkspace {
             };
 
             if let Some(reason) = editor.read(cx).incomplete_reason(cx) {
-                self.save_blocked = Some(format!("Finish this rule first: {reason}"));
+                self.save_blocked = Some(strings::workspace_save_blocked_format(reason));
                 return false;
             }
             // Accepting can reorder the list, so the index is looked up again each time.
@@ -408,11 +405,9 @@ impl TaskWorkspace {
                 &self.rows[earlier].destination,
                 &self.rows[index].destination,
             ) {
-                return Some(format!(
-                    "Rule {} (\"{}\") already takes everything this one would, so this rule \
-                     never matches.",
+                return Some(strings::workspace_shadowed_by_format(
                     earlier + 1,
-                    self.rows[earlier].destination.name
+                    &self.rows[earlier].destination.name,
                 ));
             }
         }
@@ -453,7 +448,7 @@ impl TaskWorkspace {
                     Err(error) => {
                         workspace.clear_preview();
                         workspace.preview_summary =
-                            Some(format!("The source could not be read: {error}"));
+                            Some(strings::workspace_preview_failed_format(error));
                     }
                 }
                 cx.notify();
@@ -463,17 +458,18 @@ impl TaskWorkspace {
     }
 
     fn show_preview(&mut self, scan: Scan) {
-        self.preview_summary = Some(format!("The source holds {}.", files(scan.file_count)));
+        self.preview_summary = Some(strings::workspace_preview_source_format(files(
+            scan.file_count,
+        )));
 
         for row in &mut self.rows {
             row.preview = scan.per_destination.get(&row.destination.id).cloned();
         }
 
         self.preview_unmatched = (scan.unmatched.count > 0).then(|| {
-            format!(
-                "{} match no rule and stay in the source: {}",
+            strings::workspace_preview_unmatched_format(
                 files(scan.unmatched.count),
-                scan.unmatched.sample.join(", ")
+                scan.unmatched.sample.join(", "),
             )
         });
 
@@ -492,11 +488,10 @@ impl TaskWorkspace {
                     .and_then(|rule| self.rows.get(*rule))
                     .map(|row| row.destination.name.clone())
                     .unwrap_or_default();
-                format!(
-                    "{} matches rules {} — rule {} (\"{winner}\") takes it.",
-                    file.relative_path,
+                strings::workspace_preview_contested_format(
+                    &file.relative_path,
                     positions.join(", "),
-                    file.rules.first().map_or(0, |rule| rule + 1),
+                    winner,
                 )
             })
             .collect();
@@ -519,11 +514,7 @@ impl TaskWorkspace {
 
 /// `1 file` / `12 files`.
 fn files(count: usize) -> String {
-    if count == 1 {
-        "1 file".to_owned()
-    } else {
-        format!("{count} files")
-    }
+    strings::common_files_count(count as i64)
 }
 
 impl Render for TaskWorkspace {
@@ -551,10 +542,9 @@ impl Render for TaskWorkspace {
                     .when(self.rows.is_empty(), |element| {
                         element.child(div().text_color(theme::color(theme::TEXT_SECONDARY)).child(
                             if routing {
-                                "No rules yet — nothing is routed anywhere, so every file \
-                                     stays in the source."
+                                strings::workspace_routing_empty()
                             } else {
-                                "No destinations yet — this task has nowhere to sync to."
+                                strings::workspace_sync_empty()
                             },
                         ))
                     })
@@ -575,19 +565,17 @@ impl TaskWorkspace {
             .flex_col()
             .gap(px(3.))
             .child(dialog_title(if routing {
-                "Routing rules"
+                strings::workspace_rules_title()
             } else {
-                "Destinations"
+                strings::workspace_destinations_title()
             }))
             .child(
                 div()
                     .text_color(theme::color(theme::TEXT_SECONDARY))
                     .child(if routing {
-                        "Files are matched top to bottom, and the first rule that wants a file \
-                         takes it. Anything no rule matches stays in the source."
+                        strings::workspace_routing_subtitle()
                     } else {
-                        "Each destination decides on its own which files it takes, so a file \
-                         can go to several of them."
+                        strings::workspace_sync_subtitle()
                     }),
             )
             .child(
@@ -725,7 +713,7 @@ impl TaskWorkspace {
                         IconButton::new(SharedString::from(format!("up-{id}")), Icon::ArrowUp)
                             .small()
                             .glyph_size(px(14.))
-                            .tooltip("Match this rule earlier")
+                            .tooltip(strings::workspace_move_up_tip())
                             .disabled(index == 0 || catch_all)
                             .on_click(
                                 cx.listener(move |workspace, _, _, cx| workspace.move_up(id, cx)),
@@ -735,7 +723,7 @@ impl TaskWorkspace {
                         IconButton::new(SharedString::from(format!("down-{id}")), Icon::ArrowDown)
                             .small()
                             .glyph_size(px(14.))
-                            .tooltip("Match this rule later")
+                            .tooltip(strings::workspace_move_down_tip())
                             .disabled(last || catch_all)
                             .on_click(
                                 cx.listener(move |workspace, _, _, cx| workspace.move_down(id, cx)),
@@ -746,7 +734,7 @@ impl TaskWorkspace {
                 IconButton::new(SharedString::from(format!("copy-{id}")), Icon::ContentCopy)
                     .small()
                     .glyph_size(px(14.))
-                    .tooltip("Duplicate")
+                    .tooltip(strings::workspace_duplicate_tip())
                     .on_click(cx.listener(move |workspace, _, window, cx| {
                         workspace.duplicate(id, window, cx)
                     })),
@@ -759,7 +747,7 @@ impl TaskWorkspace {
                     IconButton::new(SharedString::from(format!("edit-{id}")), Icon::Pencil)
                         .small()
                         .glyph_size(px(14.))
-                        .tooltip("Edit")
+                        .tooltip(strings::workspace_edit_tip())
                         .on_click(cx.listener(move |workspace, _, window, cx| {
                             workspace.expand(id, window, cx)
                         })),
@@ -772,7 +760,7 @@ impl TaskWorkspace {
                             .small()
                             .glyph_size(px(15.))
                             .tone(IconButtonTone::Run)
-                            .tooltip("Keep these changes")
+                            .tooltip(strings::workspace_done_tip())
                             .on_click(
                                 cx.listener(move |workspace, _, _, cx| workspace.accept(id, cx)),
                             ),
@@ -781,7 +769,7 @@ impl TaskWorkspace {
                         IconButton::new(SharedString::from(format!("discard-{id}")), Icon::Close)
                             .small()
                             .glyph_size(px(14.))
-                            .tooltip("Discard these changes")
+                            .tooltip(strings::workspace_discard_tip())
                             .on_click(
                                 cx.listener(move |workspace, _, _, cx| workspace.discard(id, cx)),
                             ),
@@ -794,7 +782,7 @@ impl TaskWorkspace {
                 )
                 .small()
                 .glyph_size(px(14.))
-                .tooltip("Remove")
+                .tooltip(strings::workspace_remove_tip())
                 .on_click(cx.listener(move |workspace, _, _, cx| workspace.delete(id, cx))),
             )
     }
@@ -852,9 +840,10 @@ impl TaskWorkspace {
                     .items_center()
                     .gap(px(10.))
                     .child(
-                        Button::new("preview", "Preview")
+                        Button::new("preview", strings::workspace_preview())
                             .tone(ButtonTone::Secondary)
                             .glyph(Icon::EyeOutline)
+                            .tooltip(strings::workspace_preview_tip())
                             .disabled(self.scanning)
                             .on_click(cx.listener(|workspace, _, _, cx| workspace.rescan(cx))),
                     )
@@ -862,7 +851,7 @@ impl TaskWorkspace {
                         element.child(
                             div()
                                 .text_color(theme::color(theme::TEXT_SECONDARY))
-                                .child("Reading the source…"),
+                                .child(strings::workspace_scanning_source()),
                         )
                     })
                     .children(self.preview_summary.clone().map(|summary| {
@@ -898,9 +887,9 @@ impl TaskWorkspace {
                 Button::new(
                     "add-rule",
                     if routing {
-                        "Add rule"
+                        strings::workspace_add_rule()
                     } else {
-                        "Add destination"
+                        strings::workspace_add_destination()
                     },
                 )
                 .tone(ButtonTone::Secondary)
@@ -911,9 +900,10 @@ impl TaskWorkspace {
             // second one could never match.
             .when(self.can_add_catch_all(), |element| {
                 element.child(
-                    Button::new("add-catch-all", "Add \"everything else\"")
+                    Button::new("add-catch-all", strings::workspace_add_catch_all())
                         .tone(ButtonTone::Secondary)
                         .glyph(Icon::TrayArrowDown)
+                        .tooltip(strings::workspace_add_catch_all_tip())
                         .on_click(cx.listener(|workspace, _, window, cx| {
                             workspace.add_catch_all(window, cx)
                         })),
@@ -921,12 +911,12 @@ impl TaskWorkspace {
             })
             .child(div().flex_1())
             .child(
-                Button::new("workspace-cancel", "Cancel")
+                Button::new("workspace-cancel", strings::common_cancel())
                     .tone(ButtonTone::Secondary)
                     .on_click(cx.listener(|_, _, _, cx| cx.emit(TaskWorkspaceEvent::Cancelled))),
             )
             .child(
-                Button::new("workspace-save", "Save")
+                Button::new("workspace-save", strings::workspace_save())
                     .on_click(cx.listener(|workspace, _, _, cx| workspace.save(cx))),
             )
     }

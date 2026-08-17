@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, FixedOffset, Local};
 
 use gpui::{
     div, img, prelude::*, px, Context, Entity, FontWeight, SharedString, Subscription, Window,
@@ -22,6 +22,7 @@ use crate::components::{
     icon, Badge, BadgeTone, Button, ButtonTone, HintBox, HintTone, Icon, IconButton, IconButtonTone,
 };
 use crate::state::{health_of, RunGate, TriggerEvent, TriggerHost, Workspace};
+use crate::strings;
 use crate::theme;
 use crate::views::dialogs::{
     ConfirmDialog, ConfirmEvent, SettingsDialog, SettingsEvent, TaskEditor, TaskEditorEvent,
@@ -130,7 +131,7 @@ impl MainView {
             Notification::Error(reason) => {
                 self.trigger_errors.insert(
                     event.task_id,
-                    format!("This task's trigger stopped working: {reason}"),
+                    strings::task_trigger_error_recoverable_format(reason),
                 );
                 cx.notify();
             }
@@ -150,7 +151,7 @@ impl MainView {
                 // never runs is the worst of the three outcomes.
                 Some(reason) => self.trigger_errors.insert(
                     start.task_id,
-                    format!("This task will not run automatically: {reason}"),
+                    strings::task_trigger_error_start_format(reason),
                 ),
                 None => self.trigger_errors.remove(&start.task_id),
             };
@@ -585,17 +586,19 @@ impl MainView {
 /// `Copying photos/2024/img_0042.jpg (3/120)`
 fn describe_progress(report: &SyncProgress) -> String {
     let verb = match report.operation {
-        SyncOperation::Copy { .. } => "Copying",
-        SyncOperation::Move { .. } => "Moving",
-        SyncOperation::Delete { .. } | SyncOperation::DeleteDirectory { .. } => "Removing",
-        SyncOperation::CreateDirectory { .. } => "Creating",
-        SyncOperation::SetDirectoryTimestamp { .. } => "Tidying",
+        SyncOperation::Copy { .. } => strings::progress_copying(),
+        SyncOperation::Move { .. } => strings::progress_moving(),
+        SyncOperation::Delete { .. } | SyncOperation::DeleteDirectory { .. } => {
+            strings::progress_removing()
+        }
+        SyncOperation::CreateDirectory { .. } => strings::progress_creating(),
+        SyncOperation::SetDirectoryTimestamp { .. } => strings::progress_tidying(),
     };
-    format!(
-        "{verb} {} ({}/{})",
+    strings::progress_line_format(
+        verb,
         report.operation.relative_path(),
         report.completed_operations + 1,
-        report.total_operations
+        report.total_operations,
     )
 }
 
@@ -714,21 +717,25 @@ impl MainView {
             .child(
                 IconButton::new("settings", Icon::CogOutline)
                     .tone(IconButtonTone::Caption)
+                    .tooltip(strings::main_settings_tip())
                     .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
             )
             .child(
                 IconButton::new("minimize", Icon::WindowMinimize)
                     .tone(IconButtonTone::Caption)
+                    .tooltip(strings::main_minimize_tip())
                     .window_control(WindowControlArea::Min),
             )
             .child(
                 IconButton::new("maximize", Icon::WindowMaximize)
                     .tone(IconButtonTone::Caption)
+                    .tooltip(strings::main_maximize_tip())
                     .window_control(WindowControlArea::Max),
             )
             .child(
                 IconButton::new("close", Icon::WindowClose)
                     .tone(IconButtonTone::CaptionClose)
+                    .tooltip(strings::main_close_tip())
                     .window_control(WindowControlArea::Close),
             )
     }
@@ -746,6 +753,7 @@ impl MainView {
                     IconButton::new("expand-sidebar", Icon::ChevronRight)
                         .tone(IconButtonTone::Caption)
                         .small()
+                        .tooltip(strings::main_show_sidebar_tip())
                         .on_click(cx.listener(|view, _, _, cx| {
                             view.workspace.toggle_sidebar();
                             cx.notify();
@@ -779,12 +787,13 @@ impl MainView {
                         div()
                             .text_size(theme::text::small())
                             .text_color(theme::color(theme::TEXT_SECONDARY))
-                            .child("Tasks"),
+                            .child(strings::main_tasks_heading()),
                     )
                     .child(
                         IconButton::new("collapse-sidebar", Icon::ChevronLeft)
                             .tone(IconButtonTone::Caption)
                             .small()
+                            .tooltip(strings::main_hide_sidebar_tip())
                             .on_click(cx.listener(|view, _, _, cx| {
                                 view.workspace.toggle_sidebar();
                                 cx.notify();
@@ -897,15 +906,15 @@ impl MainView {
                     .flex_1()
                     .text_size(theme::text::heading())
                     .font_weight(FontWeight::MEDIUM)
-                    .child("Sync tasks"),
+                    .child(strings::main_sync_tasks_heading()),
             )
             .child(
                 Button::new(
                     "toggle-expand",
                     if all_expanded {
-                        "Collapse all"
+                        strings::main_collapse_all()
                     } else {
-                        "Expand all"
+                        strings::main_expand_all()
                     },
                 )
                 .tone(ButtonTone::Secondary)
@@ -915,7 +924,7 @@ impl MainView {
                 })),
             )
             .child(
-                Button::new("run-all", "Run all")
+                Button::new("run-all", strings::main_run_all())
                     .tone(ButtonTone::Secondary)
                     .glyph(Icon::Play)
                     // Every task at once, but each behind its own gate: runs of one task are
@@ -941,7 +950,7 @@ impl MainView {
                     })),
             )
             .child(
-                Button::new("new-task", "New task")
+                Button::new("new-task", strings::main_new_task())
                     .glyph(Icon::Plus)
                     .on_click(
                         cx.listener(|view, _, window, cx| view.open_task_editor(None, window, cx)),
@@ -1092,6 +1101,7 @@ impl MainView {
                                             Icon::Stop,
                                         )
                                         .tone(IconButtonTone::Danger)
+                                        .tooltip(strings::task_stop_tip())
                                         .on_click(
                                             cx.listener(move |view, _, _, cx| {
                                                 view.stop_task(id, cx)
@@ -1103,6 +1113,7 @@ impl MainView {
                                             Icon::Play,
                                         )
                                         .tone(IconButtonTone::Run)
+                                        .tooltip(strings::task_run_now_tip())
                                         .disabled(task.destinations.is_empty())
                                         .on_click(
                                             cx.listener(move |view, _, _, cx| {
@@ -1128,6 +1139,7 @@ impl MainView {
                                             Icon::Pencil,
                                         )
                                         .glyph_size(px(15.))
+                                        .tooltip(strings::task_edit_tip())
                                         .on_click(
                                             cx.listener(move |view, _, window, cx| {
                                                 view.open_task_editor(Some(id), window, cx)
@@ -1140,6 +1152,7 @@ impl MainView {
                                             Icon::TrashCanOutline,
                                         )
                                         .glyph_size(px(15.))
+                                        .tooltip(strings::task_delete_tip())
                                         .on_click(
                                             cx.listener(move |view, _, _, cx| {
                                                 let Some(task) = view.workspace.task(id) else {
@@ -1240,7 +1253,7 @@ impl MainView {
                             )
                             .small()
                             .tone(IconButtonTone::Danger)
-                            .tooltip("Review what this run would delete")
+                            .tooltip(strings::task_review_deletions_tip())
                             .on_click(cx.listener(
                                 move |view, _, _, cx| view.review_deletions(task_id, id, cx),
                             )),
@@ -1252,6 +1265,7 @@ impl MainView {
                             Icon::Pencil,
                         )
                         .small()
+                        .tooltip(strings::dest_edit_tip())
                         .on_click(cx.listener(
                             move |view, _, window, cx| {
                                 view.open_workspace(task_id, Some(id), false, window, cx)
@@ -1264,6 +1278,7 @@ impl MainView {
                             Icon::TrashCanOutline,
                         )
                         .small()
+                        .tooltip(strings::dest_delete_tip())
                         .on_click(cx.listener(move |view, _, _, cx| {
                             let Some(name) = view
                                 .workspace
@@ -1310,22 +1325,24 @@ fn path_text(path: &str) -> impl IntoElement {
 /// just another destination.
 fn add_destination_hint(kind: SyncTaskKind) -> &'static str {
     match kind {
-        SyncTaskKind::Move => "Add a routing rule",
-        SyncTaskKind::Sync => "Add a destination",
+        SyncTaskKind::Move => strings::task_add_routing_rule_tip(),
+        SyncTaskKind::Sync => strings::task_add_destination_tip(),
     }
 }
 
 fn kind_badge(kind: SyncTaskKind) -> Badge {
     match kind {
-        SyncTaskKind::Sync => Badge::new("Sync").glyph(Icon::Sync),
-        SyncTaskKind::Move => Badge::new("Move").glyph(Icon::CallSplit),
+        SyncTaskKind::Sync => Badge::new(strings::enum_sync_task_kind_sync()).glyph(Icon::Sync),
+        SyncTaskKind::Move => {
+            Badge::new(strings::enum_sync_task_kind_move()).glyph(Icon::CallSplit)
+        }
     }
 }
 
 /// `next run in 2 h`. Relative, because that is the question being asked — with the absolute
 /// time on hover, which never goes stale between refreshes.
 fn next_run_badge(task_id: Uuid, next: DateTime<Local>) -> Badge {
-    Badge::new(format!("next run {}", humanize(next - Local::now())))
+    Badge::new(strings::task_next_run_format(humanize(next - Local::now())))
         .glyph(Icon::ClockOutline)
         .tone(BadgeTone::Live)
         .tooltip(
@@ -1338,24 +1355,24 @@ fn next_run_badge(task_id: Uuid, next: DateTime<Local>) -> Badge {
 /// arithmetic; "in 1 h" is an answer.
 fn humanize(span: chrono::TimeDelta) -> String {
     if span <= chrono::TimeDelta::zero() {
-        return "due now".to_owned();
+        return strings::time_due_now().to_owned();
     }
     if span < chrono::TimeDelta::minutes(1) {
-        return "in under a minute".to_owned();
+        return strings::time_in_under_a_minute().to_owned();
     }
     if span < chrono::TimeDelta::hours(1) {
-        return format!("in {} min", span.num_minutes());
+        return strings::time_in_minutes_format(span.num_minutes());
     }
     if span < chrono::TimeDelta::days(1) {
-        return format!("in {} h", span.num_hours());
+        return strings::time_in_hours_format(span.num_hours());
     }
-    format!("in {} d", span.num_days())
+    strings::time_in_days_format(span.num_days())
 }
 
 /// The task will not run by itself. Amber rather than red: what is broken is the automation,
 /// not the task — Run now still works.
 fn trigger_error_badge(task_id: Uuid, reason: &str) -> Badge {
-    Badge::new("Trigger error")
+    Badge::new(strings::task_trigger_error_badge())
         .glyph(Icon::AlertOutline)
         .tone(BadgeTone::Warn)
         .tooltip(
@@ -1366,50 +1383,86 @@ fn trigger_error_badge(task_id: Uuid, reason: &str) -> Badge {
 
 fn trigger_badge(trigger: &Trigger) -> Badge {
     match trigger {
-        Trigger::Manual => Badge::new("Manual").glyph(Icon::CursorDefaultClickOutline),
-        Trigger::Scheduled { cron_expression } => {
-            Badge::new(format!("Scheduled · {cron_expression}")).glyph(Icon::ClockOutline)
+        Trigger::Manual => {
+            Badge::new(strings::task_trigger_manual()).glyph(Icon::CursorDefaultClickOutline)
         }
-        Trigger::Watch { .. } => Badge::new("Watching").glyph(Icon::Eye),
+        Trigger::Scheduled { cron_expression } => {
+            Badge::new(strings::task_trigger_scheduled_format(cron_expression))
+                .glyph(Icon::ClockOutline)
+        }
+        Trigger::Watch { .. } => Badge::new(strings::task_trigger_watching()).glyph(Icon::Eye),
     }
 }
 
 fn strategy_badge(strategy: SyncStrategy) -> Badge {
     match strategy {
-        SyncStrategy::Mirror => Badge::new("Mirror").glyph(Icon::Sync),
-        SyncStrategy::AddOnly => Badge::new("Add-only").glyph(Icon::Plus),
-        SyncStrategy::Move => Badge::new("Move").glyph(Icon::CallSplit),
+        SyncStrategy::Mirror => Badge::new(strings::enum_sync_strategy_mirror()).glyph(Icon::Sync),
+        SyncStrategy::AddOnly => {
+            Badge::new(strings::enum_sync_strategy_add_only()).glyph(Icon::Plus)
+        }
+        SyncStrategy::Move => Badge::new(strings::enum_sync_strategy_move()).glyph(Icon::CallSplit),
     }
 }
 
 fn filter_badge(destination: &Destination) -> Badge {
     let label = if destination.has_only_the_all_files_filter() {
-        "All files".to_owned()
+        strings::filter_all_files().to_owned()
+    } else if destination.filters.is_empty() {
+        // An empty filter list selects nothing, and the badge has to say so rather than
+        // reading as "no filtering".
+        strings::dest_no_rules().to_owned()
     } else {
-        match destination.filters.len() {
-            0 => "No rules".to_owned(),
-            1 => "1 filter".to_owned(),
-            count => format!("{count} filters"),
-        }
+        strings::dest_filters_count(destination.filters.len() as i64)
     };
     Badge::new(label).glyph(Icon::FilterOutline)
 }
 
 fn status_text(status: Option<&DestinationSyncStatus>) -> String {
     let Some(status) = status else {
-        return "Never run".to_owned();
+        return strings::status_never_run().to_owned();
     };
     match status.outcome {
-        SyncOutcome::Never => "Never run".to_owned(),
-        SyncOutcome::Running => "Syncing…".to_owned(),
-        SyncOutcome::NeedsConfirmation => "Needs confirmation".to_owned(),
-        SyncOutcome::Failed => status.error.clone().unwrap_or_else(|| "Failed".to_owned()),
-        SyncOutcome::Incomplete => format!(
-            "Synced · {} files, {} in use",
-            status.files_copied, status.files_deferred
+        SyncOutcome::Never => strings::status_never_run().to_owned(),
+        SyncOutcome::Running => strings::status_syncing().to_owned(),
+        SyncOutcome::NeedsConfirmation => strings::status_needs_confirmation().to_owned(),
+        // The engine's own sentence, in English, wrapped in one that is translated: the core
+        // carries no display strings, and paraphrasing an OS error loses what it said.
+        SyncOutcome::Failed => match &status.error {
+            Some(error) => strings::status_failed_format(error),
+            None => strings::status_failed().to_owned(),
+        },
+        SyncOutcome::Incomplete => strings::status_incomplete_format(
+            ago(status.last_run),
+            strings::common_files_count(i64::from(status.files_copied)),
+            status.files_deferred,
         ),
-        SyncOutcome::Success => format!("Synced · {} files", status.files_copied),
+        SyncOutcome::Success => strings::status_synced_format(
+            ago(status.last_run),
+            strings::common_files_count(i64::from(status.files_copied)),
+        ),
     }
+}
+
+/// How long ago a run finished, in the coarsest unit that still says something useful.
+///
+/// A status with no timestamp comes from a run this session that has not been written out yet,
+/// which is as recent as it gets.
+fn ago(last_run: Option<DateTime<FixedOffset>>) -> String {
+    let Some(last_run) = last_run else {
+        return strings::time_just_now().to_owned();
+    };
+
+    let span = Local::now().signed_duration_since(last_run);
+    if span < chrono::TimeDelta::minutes(1) {
+        return strings::time_just_now().to_owned();
+    }
+    if span < chrono::TimeDelta::hours(1) {
+        return strings::time_minutes_ago_format(span.num_minutes());
+    }
+    if span < chrono::TimeDelta::days(1) {
+        return strings::time_hours_ago_format(span.num_hours());
+    }
+    strings::time_days_ago_format(span.num_days())
 }
 
 /// One glyph and one colour per outcome, shared by the card summary and the rows beneath it.
@@ -1425,11 +1478,7 @@ fn outcome_appearance(outcome: SyncOutcome) -> (Icon, u32) {
 }
 
 fn config_unreadable_banner() -> impl IntoElement {
-    HintBox::new(
-        "SyncMaid could not read its saved tasks, so it will not save over them. \
-         Check Data\\tasks.json and its .bak, then restart.",
-    )
-    .tone(HintTone::Warning)
+    HintBox::new(strings::main_config_unreadable_detail()).tone(HintTone::Warning)
 }
 
 fn empty_state() -> impl IntoElement {
@@ -1439,7 +1488,7 @@ fn empty_state() -> impl IntoElement {
         .py(px(24.))
         .text_size(theme::text::small())
         .text_color(theme::color(theme::TEXT_SECONDARY))
-        .child("No tasks yet — add the first one with New task.")
+        .child(strings::main_empty_state())
 }
 
 #[cfg(test)]
@@ -1476,8 +1525,10 @@ mod tests {
         let mut status = DestinationSyncStatus::new(uuid::Uuid::nil(), SyncOutcome::Failed);
         status.error = Some("Failed to copy 'a.txt': access denied.".into());
 
+        // Wrapped, not paraphrased: the engine's own words survive intact inside a sentence
+        // that is translated.
         assert_eq!(
-            "Failed to copy 'a.txt': access denied.",
+            "Failed · Failed to copy 'a.txt': access denied.",
             status_text(Some(&status))
         );
     }
@@ -1488,7 +1539,11 @@ mod tests {
         status.files_copied = 126;
         status.files_deferred = 2;
 
-        assert_eq!("Synced · 126 files, 2 in use", status_text(Some(&status)));
+        assert_eq!(
+            "Synced just now · 126 files, 2 in use",
+            status_text(Some(&status)),
+            "a status with no timestamp is one this session has not written out yet"
+        );
     }
 
     #[test]

@@ -3,6 +3,7 @@
 use gpui::{div, prelude::*, Context, EventEmitter, SharedString, Window};
 
 use crate::components::{Button, ButtonTone};
+use crate::strings;
 use crate::theme;
 use crate::views::dialogs::{dialog_card, dialog_footer, dialog_title};
 
@@ -37,30 +38,22 @@ impl ConfirmDialog {
 
     /// Deleting a task, with the count of what goes with it.
     pub fn delete_task(name: &str, destinations: usize) -> Self {
-        let plural = if destinations == 1 {
-            "destination"
-        } else {
-            "destinations"
-        };
         Self::new(
-            "Delete task?",
-            format!(
-                "Delete the task \"{name}\" and its {destinations} {plural}? This can't be \
-                 undone. Your files at both ends are left alone."
+            strings::main_delete_task_title(),
+            strings::main_delete_task_message_format(
+                name,
+                strings::main_delete_task_suffix(destinations as i64),
             ),
-            "Delete task",
+            strings::main_delete_task_confirm(),
         )
     }
 
     /// Deleting one destination from a task.
     pub fn delete_destination(name: &str) -> Self {
         Self::new(
-            "Delete destination?",
-            format!(
-                "Remove \"{name}\" from this task? This can't be undone. The files already there \
-                 are left alone."
-            ),
-            "Delete destination",
+            strings::task_delete_destination_title(),
+            strings::task_delete_destination_message_format(name),
+            strings::task_delete_destination_confirm(),
         )
     }
 
@@ -100,7 +93,7 @@ impl Render for ConfirmDialog {
             .child(
                 dialog_footer()
                     .child(
-                        Button::new("confirm-cancel", "Cancel")
+                        Button::new("confirm-cancel", strings::common_cancel())
                             .tone(ButtonTone::Secondary)
                             .on_click(cx.listener(|dialog, _, _, cx| dialog.cancel(cx))),
                     )
@@ -124,7 +117,7 @@ mod tests {
         let dialog = ConfirmDialog::delete_task("Photos", 2);
 
         assert!(dialog.message.contains("\"Photos\""));
-        assert!(dialog.message.contains("2 destinations"));
+        assert!(dialog.message.contains("its 2 destinations"));
         assert!(
             dialog.message.contains("files at both ends are left alone"),
             "the commonest fear on this button is that it deletes the files"
@@ -135,7 +128,7 @@ mod tests {
     fn the_destination_count_reads_naturally_at_one() {
         assert!(ConfirmDialog::delete_task("Photos", 1)
             .message
-            .contains("1 destination?"));
+            .contains("its 1 destination?"));
     }
 
     #[test]

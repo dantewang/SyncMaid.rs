@@ -17,7 +17,7 @@ use gpui_component::{Root, TitleBar};
 use syncmaid::platform::tray::{TrayCommand, TrayLabels};
 use syncmaid::state::Workspace;
 use syncmaid::views::MainView;
-use syncmaid::{assets, platform, services};
+use syncmaid::{assets, platform, services, strings};
 use syncmaid_core::io::{FileSystem, PhysicalFileSystem};
 use syncmaid_core::persistence::ConfigLocation;
 
@@ -63,6 +63,9 @@ fn main() {
             gpui_component::init(cx);
 
             let workspace = Workspace::load(Arc::clone(&file_system), &config);
+            // Before the first window is drawn: switching afterwards works, but the user would
+            // see one frame of the wrong language.
+            syncmaid::i18n::set_language(workspace.settings().language.as_deref());
             // Read before the window exists: "start minimized" is the difference between
             // showing it and never showing it, not something to undo afterwards.
             let start_minimized = workspace.settings().start_minimized;
@@ -179,9 +182,10 @@ fn answer_later_launches(
 /// and are applied here, on the UI thread.
 fn start_tray(cx: &mut App, window: gpui::WindowHandle<Root>) -> Result<()> {
     let commands = platform::tray::start(TrayLabels {
+        // The product name, which is not translated.
         tooltip: "SyncMaid".into(),
-        show_main_window: "Show main window".into(),
-        exit: "Exit".into(),
+        show_main_window: strings::tray_show_main_window().into(),
+        exit: strings::tray_exit().into(),
     })?;
 
     cx.spawn(async move |cx| {

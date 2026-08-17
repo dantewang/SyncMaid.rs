@@ -55,8 +55,7 @@ jobs:
           # without the matching source.
           New-Item -ItemType Directory publish | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/SyncMaid.exe publish/
-          Copy-Item LICENSE publish/ -ErrorAction SilentlyContinue
-          Copy-Item README.md publish/ -ErrorAction SilentlyContinue
+          Copy-Item README.md publish/
           Compress-Archive -Path publish/* -DestinationPath $zip -Force
 
           # An integrity checksum users can verify: Get-FileHash <zip> -Algorithm SHA256
@@ -87,3 +86,4 @@ jobs:
           } else {
             gh release create $tag $assets --title $tag --generate-notes
           }
+

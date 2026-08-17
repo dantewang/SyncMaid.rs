@@ -9,10 +9,12 @@
 
 mod confirm;
 mod destination_editor;
+mod settings;
 mod task_editor;
 
 pub use confirm::{ConfirmDialog, ConfirmEvent};
 pub use destination_editor::{DestinationEditor, DestinationEditorEvent};
+pub use settings::{SettingsDialog, SettingsEvent};
 pub use task_editor::{TaskEditor, TaskEditorEvent};
 
 use gpui::{div, prelude::*, px, Div, Pixels};

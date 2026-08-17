@@ -21,8 +21,8 @@ use crate::components::{
 use crate::state::{health_of, RunGate, Workspace};
 use crate::theme;
 use crate::views::dialogs::{
-    ConfirmDialog, ConfirmEvent, DestinationEditor, DestinationEditorEvent, TaskEditor,
-    TaskEditorEvent,
+    ConfirmDialog, ConfirmEvent, DestinationEditor, DestinationEditorEvent, SettingsDialog,
+    SettingsEvent, TaskEditor, TaskEditorEvent,
 };
 
 /// Which modal is open, and what it will do when it says yes.
@@ -30,6 +30,7 @@ enum ActiveDialog {
     Confirm(Entity<ConfirmDialog>),
     TaskEditor(Entity<TaskEditor>),
     DestinationEditor(Entity<DestinationEditor>),
+    Settings(Entity<SettingsDialog>),
 }
 
 /// What a confirmation is confirming.
@@ -93,6 +94,7 @@ impl MainView {
                     self.open_destination_editor(task, Some(destination), window, cx);
                 }
             }
+            "settings" => self.open_settings(cx),
             "confirm" => {
                 if let Some(id) = first_task {
                     let Some(task) = self.workspace.task(id) else {
@@ -104,6 +106,11 @@ impl MainView {
             }
             other => tracing::warn!("no dialog called {other:?}"),
         }
+    }
+
+    /// Whether closing the window should hide it instead of quitting.
+    pub fn close_to_tray(&self) -> bool {
+        self.workspace.settings().close_to_tray
     }
 
     fn gate_for(&mut self, task_id: Uuid) -> Arc<RunGate> {
@@ -205,6 +212,28 @@ impl MainView {
             None => task.destinations.push(destination),
         }
         self.workspace.upsert_task(task);
+    }
+
+    fn open_settings(&mut self, cx: &mut Context<Self>) {
+        let settings = self.workspace.settings().clone();
+        let directory = self.workspace.data_directory().to_path_buf();
+        let dialog = cx.new(|_| SettingsDialog::new(settings, directory));
+
+        self.dialog_subscription = Some(cx.subscribe(
+            &dialog,
+            |view, _, event: &SettingsEvent, cx| match event {
+                // Applied the moment the switch is flipped; there is no save step.
+                SettingsEvent::Changed(settings) => {
+                    let settings = settings.clone();
+                    view.workspace
+                        .update_settings(|current| *current = settings);
+                    cx.notify();
+                }
+                SettingsEvent::Closed => view.close_dialog(cx),
+            },
+        ));
+        self.dialog = Some(ActiveDialog::Settings(dialog));
+        cx.notify();
     }
 
     fn open_confirm(
@@ -398,7 +427,7 @@ impl Render for MainView {
             .bg(theme::color(theme::PAGE))
             .text_size(theme::text::body())
             .text_color(theme::color(theme::TEXT_PRIMARY))
-            .child(self.render_title_bar())
+            .child(self.render_title_bar(cx))
             .child(
                 div()
                     .flex()
@@ -432,6 +461,7 @@ impl MainView {
                     ActiveDialog::Confirm(entity) => entity.clone().into_any_element(),
                     ActiveDialog::TaskEditor(entity) => entity.clone().into_any_element(),
                     ActiveDialog::DestinationEditor(entity) => entity.clone().into_any_element(),
+                    ActiveDialog::Settings(entity) => entity.clone().into_any_element(),
                 }),
         )
     }
@@ -439,7 +469,7 @@ impl MainView {
 
 impl MainView {
     /// 40 px, app-drawn, with the OS still owning drag and the three window controls.
-    fn render_title_bar(&self) -> impl IntoElement {
+    fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_row()
@@ -466,7 +496,11 @@ impl MainView {
                             .child("SyncMaid"),
                     ),
             )
-            .child(IconButton::new("settings", Icon::CogOutline).tone(IconButtonTone::Caption))
+            .child(
+                IconButton::new("settings", Icon::CogOutline)
+                    .tone(IconButtonTone::Caption)
+                    .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
+            )
             .child(
                 IconButton::new("minimize", Icon::WindowMinimize)
                     .tone(IconButtonTone::Caption)

@@ -37,6 +37,7 @@ uuid.workspace = true
 # The tray lives on its own thread with its own win32 message pump; ShowWindow is what keeps
 # a hidden window (and therefore gpui's message loop) alive instead of destroying it.
 tray-icon = "0.24"
+windows-registry = "0.6.1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_HiDpi",

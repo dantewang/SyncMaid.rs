@@ -52,8 +52,13 @@ fn main() {
             gpui_component::init(cx);
 
             let workspace = Workspace::load(Arc::clone(&file_system), &config);
-            let (window, view) = open_main_window(workspace, Arc::clone(&file_system), cx)
-                .expect("open the main window");
+            // Read before the window exists: "start minimized" is the difference between
+            // showing it and never showing it, not something to undo afterwards.
+            let start_minimized = workspace.settings().start_minimized;
+            let (window, view) =
+                open_main_window(workspace, Arc::clone(&file_system), start_minimized, cx)
+                    .expect("open the main window");
+            close_to_tray(window, view.clone(), cx);
 
             if let Some(dialog) = show.clone() {
                 let _ = window.update(cx, |_, window, cx| {
@@ -77,6 +82,7 @@ fn main() {
 fn open_main_window(
     workspace: Workspace,
     file_system: Arc<dyn FileSystem>,
+    start_minimized: bool,
     cx: &mut App,
 ) -> Result<(gpui::WindowHandle<Root>, Entity<MainView>)> {
     let captured: Rc<RefCell<Option<Entity<MainView>>>> = Rc::default();
@@ -91,6 +97,10 @@ fn open_main_window(
             titlebar: Some(TitleBar::title_bar_options()),
             window_min_size: Some(size(px(WINDOW_MIN_SIZE.0), px(WINDOW_MIN_SIZE.1))),
             app_id: Some("SyncMaid".into()),
+            // Never shown rather than shown and hidden: no flash, no taskbar entry. The window
+            // still exists, so triggers run and the tray can summon it.
+            show: !start_minimized,
+            focus: !start_minimized,
             ..Default::default()
         },
         {
@@ -110,6 +120,22 @@ fn open_main_window(
         .take()
         .expect("the window built its view");
     Ok((handle, view))
+}
+
+/// Makes the window's close button hide it while "close to the system tray" is on.
+///
+/// Only a user closing the window reaches here. The tray's Exit quits the app outright, which
+/// is what keeps Exit able to actually exit.
+fn close_to_tray(window: gpui::WindowHandle<Root>, view: Entity<MainView>, cx: &mut App) {
+    let _ = window.update(cx, |_, window, cx| {
+        window.on_window_should_close(cx, move |window, cx| {
+            let hide = view.read(cx).close_to_tray();
+            if hide {
+                platform::window_visibility::hide(window);
+            }
+            !hide
+        });
+    });
 }
 
 /// Wires the tray to the window: its commands arrive on a channel from the tray's own thread

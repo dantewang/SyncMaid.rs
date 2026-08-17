@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 /// The loaded tasks, their last outcomes, and what the window is doing with them.
 pub struct Workspace {
+    data_directory: std::path::PathBuf,
     tasks: Vec<SyncTask>,
     statuses: HashMap<Uuid, DestinationSyncStatus>,
     settings: AppSettings,
@@ -41,6 +42,7 @@ impl Workspace {
         let expanded = tasks.iter().map(|task| task.id).collect();
 
         Self {
+            data_directory: location.directory().to_path_buf(),
             tasks,
             statuses,
             settings,
@@ -52,6 +54,11 @@ impl Workspace {
             expanded,
             selected: None,
         }
+    }
+
+    /// Where everything SyncMaid saves lives.
+    pub fn data_directory(&self) -> &std::path::Path {
+        &self.data_directory
     }
 
     pub fn tasks(&self) -> &[SyncTask] {

@@ -21,15 +21,16 @@ use crate::components::{
 use crate::state::{health_of, RunGate, Workspace};
 use crate::theme;
 use crate::views::dialogs::{
-    ConfirmDialog, ConfirmEvent, DestinationEditor, DestinationEditorEvent, SettingsDialog,
-    SettingsEvent, TaskEditor, TaskEditorEvent,
+    ConfirmDialog, ConfirmEvent, SettingsDialog, SettingsEvent, TaskEditor, TaskEditorEvent,
+    TaskWorkspace, TaskWorkspaceEvent,
 };
+use crate::views::mirror_delete::{self, MirrorDeleteDecision};
 
 /// Which modal is open, and what it will do when it says yes.
 enum ActiveDialog {
     Confirm(Entity<ConfirmDialog>),
     TaskEditor(Entity<TaskEditor>),
-    DestinationEditor(Entity<DestinationEditor>),
+    Workspace(Entity<TaskWorkspace>),
     Settings(Entity<SettingsDialog>),
 }
 
@@ -81,7 +82,7 @@ impl MainView {
             }
             "destination" => {
                 if let Some(id) = first_task {
-                    self.open_destination_editor(id, None, window, cx);
+                    self.open_workspace(id, None, true, window, cx);
                 }
             }
             "destination-edit" => {
@@ -91,8 +92,46 @@ impl MainView {
                     .first()
                     .and_then(|task| Some((task.id, task.destinations.first()?.id)))
                 {
-                    self.open_destination_editor(task, Some(destination), window, cx);
+                    self.open_workspace(task, Some(destination), false, window, cx);
                 }
+            }
+            "workspace" => {
+                if let Some(id) = first_task {
+                    self.open_workspace(id, None, false, window, cx);
+                }
+            }
+            // The routing view only exists for a Move task, so it names one rather than taking
+            // whichever task happens to be first.
+            "routing" => {
+                if let Some(id) = self
+                    .workspace
+                    .tasks()
+                    .iter()
+                    .find(|task| task.kind() == SyncTaskKind::Move)
+                    .map(|task| task.id)
+                {
+                    self.open_workspace(id, None, false, window, cx);
+                }
+            }
+            // The real preview against the real destination — but it never starts a run, which
+            // the review button itself does. A developer flag must not move anyone's files.
+            "mirror-delete" => {
+                let found = self.workspace.tasks().iter().find_map(|task| {
+                    task.destinations
+                        .iter()
+                        .filter(|candidate| candidate.strategy == SyncStrategy::Mirror)
+                        .find_map(|candidate| {
+                            let preview = self.engine.preview_mirror_deletions(task, candidate.id);
+                            (preview.count > 0).then(|| (candidate.clone(), preview))
+                        })
+                });
+                let Some((destination, preview)) = found else {
+                    tracing::warn!("no Mirror destination would delete anything to confirm");
+                    return;
+                };
+                mirror_delete::ask(&destination, preview, cx, |decision, _| {
+                    tracing::info!(?decision, "the confirmation window was answered");
+                });
             }
             "settings" => self.open_settings(cx),
             "confirm" => {
@@ -156,10 +195,16 @@ impl MainView {
         cx.notify();
     }
 
-    fn open_destination_editor(
+    /// Opens the task's destination workspace.
+    ///
+    /// Every destination edit goes through it: which rule catches a file is a property of the
+    /// whole ordered list, so the list is what is edited — the card's add and edit buttons just
+    /// say where to start.
+    fn open_workspace(
         &mut self,
         task_id: Uuid,
-        destination_id: Option<Uuid>,
+        expand: Option<Uuid>,
+        start_with_new_rule: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -167,51 +212,51 @@ impl MainView {
             return;
         };
         let tasks = self.workspace.tasks().to_vec();
-        let existing = destination_id
-            .and_then(|id| {
-                task.destinations
-                    .iter()
-                    .find(|candidate| candidate.id == id)
-            })
-            .cloned();
+        let file_system = Arc::clone(&self.file_system);
 
-        let editor = cx.new(|cx| match &existing {
-            Some(destination) => DestinationEditor::edit(&task, destination, tasks, window, cx),
-            None => DestinationEditor::new_destination(&task, tasks, window, cx),
+        let editor = cx.new(|cx| {
+            TaskWorkspace::new(
+                &task,
+                tasks,
+                file_system,
+                expand,
+                start_with_new_rule,
+                window,
+                cx,
+            )
         });
 
         self.dialog_subscription = Some(cx.subscribe(
             &editor,
-            move |view, _, event: &DestinationEditorEvent, cx| match event {
-                DestinationEditorEvent::Saved(destination) => {
-                    view.save_destination(task_id, (**destination).clone());
+            move |view, _, event: &TaskWorkspaceEvent, cx| match event {
+                TaskWorkspaceEvent::Saved(destinations) => {
+                    view.save_destinations(task_id, destinations.clone());
                     view.close_dialog(cx);
                 }
-                DestinationEditorEvent::Cancelled => view.close_dialog(cx),
+                TaskWorkspaceEvent::Cancelled => view.close_dialog(cx),
             },
         ));
-        self.dialog = Some(ActiveDialog::DestinationEditor(editor));
+        self.dialog = Some(ActiveDialog::Workspace(editor));
         cx.notify();
     }
 
-    /// Replaces the destination with the same id, or appends it.
+    /// Replaces the task's destination list wholesale.
     ///
-    /// Appending rather than inserting matters for a Move task: its destinations are an
-    /// ordered rule list where the first match wins, so a new rule goes last, where it can
-    /// only take what the rules above it left.
-    fn save_destination(&mut self, task_id: Uuid, destination: syncmaid_core::model::Destination) {
+    /// Wholesale rather than one at a time, because for a Move task the order **is** the
+    /// matching order: a merge that preserved the old positions would silently undo a reorder
+    /// the user just made.
+    fn save_destinations(
+        &mut self,
+        task_id: Uuid,
+        destinations: Vec<syncmaid_core::model::Destination>,
+    ) {
         let Some(mut task) = self.workspace.task(task_id).cloned() else {
             return;
         };
-        match task
-            .destinations
-            .iter_mut()
-            .find(|existing| existing.id == destination.id)
-        {
-            Some(existing) => *existing = destination,
-            None => task.destinations.push(destination),
-        }
+        task.destinations = destinations;
         self.workspace.upsert_task(task);
+        // Statuses of destinations that are gone go with them.
+        self.workspace.persist_statuses();
     }
 
     fn open_settings(&mut self, cx: &mut Context<Self>) {
@@ -277,8 +322,60 @@ impl MainView {
         }
     }
 
+    /// A destination is blocked on a mass-delete confirmation: preview the current deletions,
+    /// ask in an independent window, and re-run just that destination if the user approves.
+    fn review_deletions(&mut self, task_id: Uuid, destination_id: Uuid, cx: &mut Context<Self>) {
+        let Some(task) = self.workspace.task(task_id).cloned() else {
+            return;
+        };
+        let Some(destination) = task
+            .destinations
+            .iter()
+            .find(|candidate| candidate.id == destination_id)
+            .cloned()
+        else {
+            return;
+        };
+        let engine = Arc::clone(&self.engine);
+
+        cx.spawn(async move |view, cx| {
+            // Off the UI thread: the preview walks the destination tree, which over a network
+            // share is not something to do between two frames.
+            let preview = cx
+                .background_executor()
+                .spawn(async move { engine.preview_mirror_deletions(&task, destination_id) })
+                .await;
+
+            let _ = cx.update(|cx| {
+                if preview.count == 0 {
+                    // The situation resolved — the source came back, say — so there is nothing
+                    // to confirm and the run can simply go.
+                    let _ = view.update(cx, |view, cx| view.run_task(task_id, HashSet::new(), cx));
+                    return;
+                }
+
+                let view = view.clone();
+                mirror_delete::ask(&destination, preview, cx, move |decision, cx| {
+                    if decision == MirrorDeleteDecision::Delete {
+                        let _ = view.update(cx, |view, cx| {
+                            // Scoped to the one destination that was reviewed, and to this run:
+                            // the approval is never written to disk.
+                            view.run_task(task_id, HashSet::from([destination_id]), cx)
+                        });
+                    }
+                });
+            });
+        })
+        .detach();
+    }
+
     /// Starts a run, or folds the request into the one already going.
-    fn run_task(&mut self, task_id: Uuid, cx: &mut Context<Self>) {
+    fn run_task(
+        &mut self,
+        task_id: Uuid,
+        confirmed_mass_deletes: HashSet<Uuid>,
+        cx: &mut Context<Self>,
+    ) {
         let Some(task) = self.workspace.task(task_id).cloned() else {
             return;
         };
@@ -290,7 +387,7 @@ impl MainView {
         cx.notify();
 
         cx.spawn(async move |view, cx| {
-            let Some(mut start) = gate.request(HashSet::new()) else {
+            let Some(mut start) = gate.request(confirmed_mass_deletes) else {
                 return; // An active run absorbed it; its drain will pick it up.
             };
 
@@ -460,7 +557,7 @@ impl MainView {
                 .child(match dialog {
                     ActiveDialog::Confirm(entity) => entity.clone().into_any_element(),
                     ActiveDialog::TaskEditor(entity) => entity.clone().into_any_element(),
-                    ActiveDialog::DestinationEditor(entity) => entity.clone().into_any_element(),
+                    ActiveDialog::Workspace(entity) => entity.clone().into_any_element(),
                     ActiveDialog::Settings(entity) => entity.clone().into_any_element(),
                 }),
         )
@@ -855,7 +952,7 @@ impl MainView {
                                         .disabled(task.destinations.is_empty())
                                         .on_click(
                                             cx.listener(move |view, _, _, cx| {
-                                                view.run_task(id, cx)
+                                                view.run_task(id, HashSet::new(), cx)
                                             }),
                                         )
                                     })
@@ -864,9 +961,10 @@ impl MainView {
                                             SharedString::from(format!("add-{id}")),
                                             Icon::Plus,
                                         )
+                                        .tooltip(add_destination_hint(task.kind()))
                                         .on_click(
                                             cx.listener(move |view, _, window, cx| {
-                                                view.open_destination_editor(id, None, window, cx)
+                                                view.open_workspace(id, None, true, window, cx)
                                             }),
                                         ),
                                     )
@@ -987,7 +1085,11 @@ impl MainView {
                                 Icon::AlertOutline,
                             )
                             .small()
-                            .tone(IconButtonTone::Danger),
+                            .tone(IconButtonTone::Danger)
+                            .tooltip("Review what this run would delete")
+                            .on_click(cx.listener(
+                                move |view, _, _, cx| view.review_deletions(task_id, id, cx),
+                            )),
                         )
                     })
                     .child(
@@ -998,7 +1100,7 @@ impl MainView {
                         .small()
                         .on_click(cx.listener(
                             move |view, _, window, cx| {
-                                view.open_destination_editor(task_id, Some(id), window, cx)
+                                view.open_workspace(task_id, Some(id), false, window, cx)
                             },
                         )),
                     )
@@ -1048,6 +1150,15 @@ fn path_text(path: &str) -> impl IntoElement {
         .whitespace_nowrap()
         .text_ellipsis()
         .child(path.to_owned())
+}
+
+/// A Move task's list is ordered, so what is being added there is the next routing rule, not
+/// just another destination.
+fn add_destination_hint(kind: SyncTaskKind) -> &'static str {
+    match kind {
+        SyncTaskKind::Move => "Add a routing rule",
+        SyncTaskKind::Sync => "Add a destination",
+    }
 }
 
 fn kind_badge(kind: SyncTaskKind) -> Badge {

@@ -178,6 +178,25 @@ impl FilterGroup {
     }
 }
 
+/// What a set of rules selects, in words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Summary {
+    /// No rule selects anything, so the destination would sync nothing.
+    Nothing,
+    /// What is selected, e.g. `docs/ and (jpg or png)`.
+    Selection(String),
+}
+
+impl Summary {
+    /// The selection, or a short stand-in saying there is none.
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Nothing => "nothing yet",
+            Self::Selection(what) => what,
+        }
+    }
+}
+
 /// What the filter section of the destination editor is showing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FilterModel {
@@ -281,11 +300,22 @@ impl FilterModel {
     /// The single best guard against getting a filter wrong: it says, in words, what will be
     /// synced, and it updates as the rules do.
     pub fn describe(&self) -> String {
+        match self.summary() {
+            Summary::Nothing => "No rules yet — nothing will be synced.".to_owned(),
+            Summary::Selection(what) => format!("Syncs: {what}"),
+        }
+    }
+
+    /// What is selected, without the leading verb — the same words, for somewhere the verb is
+    /// already on screen (a workspace row's one-line summary).
+    pub fn summary(&self) -> Summary {
         if self.all_files {
-            return "Syncs: all files".to_owned();
+            return Summary::Selection("all files".to_owned());
         }
         if !self.opaque.is_empty() {
-            return "Syncs: rules this editor can't show (kept as they are)".to_owned();
+            return Summary::Selection(
+                "rules this editor can't show (kept as they are)".to_owned(),
+            );
         }
 
         let described: Vec<String> = self
@@ -296,7 +326,7 @@ impl FilterModel {
             .collect();
 
         if described.is_empty() {
-            return "No rules yet — nothing will be synced.".to_owned();
+            return Summary::Nothing;
         }
 
         let joiner = if self.match_all_groups {
@@ -304,7 +334,7 @@ impl FilterModel {
         } else {
             " or "
         };
-        format!("Syncs: {}", described.join(joiner))
+        Summary::Selection(described.join(joiner))
     }
 
     /// True when the destination would select nothing, which blocks the save.

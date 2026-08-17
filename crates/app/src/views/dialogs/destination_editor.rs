@@ -1,10 +1,13 @@
 //! Adding and editing a destination: where files go, which ones, and how they are reconciled.
+//!
+//! It is never a dialog of its own. Every destination edit goes through the task workspace,
+//! because which rule catches a file is a property of the whole ordered list — so the editor
+//! draws its fields and nothing else, and the row it opens inside owns the frame, the
+//! accept/discard pair, and what happens to the result.
 
 use std::path::Path;
 
-use gpui::{
-    div, prelude::*, px, Context, Entity, EventEmitter, PathPromptOptions, SharedString, Window,
-};
+use gpui::{div, prelude::*, px, App, Context, Entity, PathPromptOptions, SharedString, Window};
 use gpui_component::input::{Input, InputState};
 use syncmaid_core::io::{is_network, paths_overlap};
 use syncmaid_core::model::{
@@ -19,20 +22,21 @@ use crate::components::{
 };
 use crate::state::{destination_conflict, FilterEntry, FilterGroup, FilterKind, FilterModel};
 use crate::theme;
-use crate::views::dialogs::{dialog_card, dialog_footer, dialog_title, field_label};
-
-/// What the editor decided.
-pub enum DestinationEditorEvent {
-    Saved(Box<Destination>),
-    Cancelled,
-}
+use crate::views::dialogs::field_label;
 
 /// See the module docs.
 pub struct DestinationEditor {
     destination_id: Uuid,
+    task_id: Uuid,
     /// A Move task's destinations are routing rules and are always Move; the choice is hidden.
     task_kind: SyncTaskKind,
     source_path: String,
+    /// The "everything else" rule. It takes whatever the rules above it left, which is what it
+    /// is for, so there is no file selection to edit.
+    catch_all: bool,
+    /// The rows beside this one in the workspace, which are not on the task yet. Empty for the
+    /// standalone modal, where the persisted task list already holds every sibling.
+    siblings: Vec<Destination>,
 
     name: Entity<InputState>,
     path: Entity<InputState>,
@@ -53,27 +57,6 @@ pub struct DestinationEditor {
 }
 
 impl DestinationEditor {
-    pub fn new_destination(
-        task: &SyncTask,
-        tasks: Vec<SyncTask>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let strategy = match task.kind() {
-            SyncTaskKind::Move => SyncStrategy::Move,
-            // Add-only is the safe default for anyone unsure: it never deletes.
-            SyncTaskKind::Sync => SyncStrategy::AddOnly,
-        };
-        // A Sync destination takes everything unless told otherwise; a Move rule must say what
-        // it routes, and the catch-all is an explicit choice rather than a silent default.
-        let filters = match task.kind() {
-            SyncTaskKind::Sync => vec![syncmaid_core::filtering::FilterRule::AllFiles],
-            SyncTaskKind::Move => Vec::new(),
-        };
-        let blank = Destination::new("", "", filters, strategy);
-        Self::build(task, &blank, tasks, window, cx)
-    }
-
     pub fn edit(
         task: &SyncTask,
         destination: &Destination,
@@ -96,8 +79,11 @@ impl DestinationEditor {
 
         Self {
             destination_id: destination.id,
+            task_id: task.id,
             task_kind: task.kind(),
             source_path: task.source_path.clone(),
+            catch_all: false,
+            siblings: Vec::new(),
             name: cx.new(|cx| {
                 InputState::new(window, cx)
                     .default_value(destination.name.clone())
@@ -133,12 +119,53 @@ impl DestinationEditor {
         }
     }
 
-    fn path_text(&self, cx: &Context<Self>) -> String {
+    /// Marks this as the "everything else" rule: it has no file selection to edit, and it
+    /// saves the lone all-files filter that makes it one.
+    pub fn catch_all(mut self) -> Self {
+        self.catch_all = true;
+        self.filters = FilterModel::of(&[syncmaid_core::filtering::FilterRule::AllFiles]);
+        self
+    }
+
+    /// The rows beside this one that are not on the task yet, for the overlap check.
+    pub fn with_siblings(mut self, siblings: Vec<Destination>) -> Self {
+        self.siblings = siblings;
+        self
+    }
+
+    /// Why this editor cannot be accepted yet, in one sentence; null when it can.
+    ///
+    /// The workspace commits open editors when the user saves, so it needs to explain a refusal
+    /// in the same words the editor itself would use.
+    pub fn incomplete_reason(&self, cx: &App) -> Option<String> {
+        self.blocked_reason(cx)
+    }
+
+    /// Adds a rule for one of the file types the preview scan found in the source, turning glob
+    /// authoring into picking.
+    pub fn add_extension(&mut self, extension: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let extension = extension.trim();
+        if extension.is_empty() || self.catch_all {
+            return;
+        }
+
+        // Picking a type is a file selection, so "all files" cannot still be the answer.
+        self.filters.all_files = false;
+        if self.filters.groups.is_empty() {
+            self.add_group(window, cx);
+        }
+        self.filters.groups[0]
+            .rules
+            .push(FilterEntry::new(FilterKind::Extension, extension));
+        cx.notify();
+    }
+
+    fn path_text(&self, cx: &App) -> String {
         self.path.read(cx).value().trim().to_owned()
     }
 
     /// The name to save: what the user typed, or the folder's own name.
-    fn resolved_name(&self, cx: &Context<Self>) -> String {
+    fn resolved_name(&self, cx: &App) -> String {
         let typed = self.name.read(cx).value().trim().to_owned();
         if !typed.is_empty() {
             return typed;
@@ -150,7 +177,7 @@ impl DestinationEditor {
             .unwrap_or(path)
     }
 
-    fn threshold_fraction(&self, cx: &Context<Self>) -> f64 {
+    fn threshold_fraction(&self, cx: &App) -> f64 {
         if !self.confirm_large_deletions {
             return 0.0;
         }
@@ -166,13 +193,14 @@ impl DestinationEditor {
     }
 
     /// Mirror is the one strategy with no filter section: its contract is tree identity, and a
-    /// filtered subset contradicts that by definition.
+    /// filtered subset contradicts that by definition. The catch-all has none either — taking
+    /// what the rules above it left is the whole rule.
     fn shows_filters(&self) -> bool {
-        self.strategy != SyncStrategy::Mirror
+        self.strategy != SyncStrategy::Mirror && !self.catch_all
     }
 
     /// Why the save is blocked, if it is.
-    fn blocked_reason(&self, cx: &Context<Self>) -> Option<String> {
+    fn blocked_reason(&self, cx: &App) -> Option<String> {
         let path = self.path_text(cx);
         if path.is_empty() {
             return Some("Choose a destination folder.".into());
@@ -186,13 +214,8 @@ impl DestinationEditor {
             );
         }
 
-        if let Some(conflict) =
-            destination_conflict(&self.tasks, None, Some(self.destination_id), &path)
-        {
-            return Some(format!(
-                "This folder overlaps a destination of task \"{}\" — destinations never overlap.",
-                conflict.task_name
-            ));
+        if let Some(conflict) = self.overlapping_destination(&path) {
+            return Some(conflict);
         }
 
         if self.shows_filters() && self.filters.selects_nothing() {
@@ -202,9 +225,44 @@ impl DestinationEditor {
         None
     }
 
-    fn save(&mut self, cx: &mut Context<Self>) {
+    /// Task shape: destinations never overlap — the rows beside this one, and every other
+    /// task's destinations.
+    fn overlapping_destination(&self, path: &str) -> Option<String> {
+        let candidate = Path::new(path);
+        if let Some(sibling) = self.siblings.iter().find(|other| {
+            other.id != self.destination_id
+                && paths_overlap(Path::new(other.local_path()), candidate)
+        }) {
+            return Some(format!(
+                "This folder overlaps \"{}\" in this task — destinations never overlap.",
+                sibling.name
+            ));
+        }
+
+        // With siblings in hand the whole owning task is skipped, because its saved
+        // destinations are exactly the rows the workspace is already holding — half of them
+        // possibly edited. Without them the persisted list is the only sibling list there is.
+        let (task, destination) = if self.siblings.is_empty() {
+            (None, Some(self.destination_id))
+        } else {
+            (Some(self.task_id), None)
+        };
+        destination_conflict(&self.tasks, task, destination, path).map(|conflict| {
+            format!(
+                "This folder overlaps a destination of task \"{}\" — destinations never overlap.",
+                conflict.task_name
+            )
+        })
+    }
+
+    /// The destination this editor currently describes, or `None` while `incomplete_reason` has
+    /// something to say.
+    ///
+    /// The workspace reads it rather than being told, because saving the whole task has to fold
+    /// every open editor in before it writes anything, and an event would arrive too late.
+    pub fn build_destination(&self, cx: &App) -> Option<Destination> {
         if self.blocked_reason(cx).is_some() {
-            return;
+            return None;
         }
 
         let mut destination = Destination::new(
@@ -226,7 +284,7 @@ impl DestinationEditor {
         destination.collision_policy = self.collision;
         destination.mass_delete_threshold = self.threshold_fraction(cx);
 
-        cx.emit(DestinationEditorEvent::Saved(Box::new(destination)));
+        Some(destination)
     }
 
     fn browse(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -300,76 +358,58 @@ fn percent(fraction: f64) -> u32 {
     (fraction * 100.0).round() as u32
 }
 
-impl EventEmitter<DestinationEditorEvent> for DestinationEditor {}
-
 impl Render for DestinationEditor {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let blocked = self.blocked_reason(cx);
-        let path = self.path_text(cx);
-        let network = !path.is_empty() && is_network(Path::new(&path));
-
-        // Never taller than the window it sits in: the body scrolls, the title and the footer
-        // stay put, so Save is always reachable.
-        let available = window.viewport_size().height - px(64.);
-
-        dialog_card(px(560.))
-            .max_h(available)
-            .child(dialog_title(if self.task_kind == SyncTaskKind::Move {
-                "Routing rule"
-            } else {
-                "Destination"
-            }))
-            .child(
-                div()
-                    .id("destination-body")
-                    .flex()
-                    .flex_col()
-                    .gap(px(16.))
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .child(
-                        div()
-                            .child(field_label("Name"))
-                            .child(Input::new(&self.name)),
-                    )
-                    .child(self.render_folder(cx))
-                    .when(self.task_kind == SyncTaskKind::Sync, |element| {
-                        element.child(self.render_strategy(cx))
-                    })
-                    .when(self.strategy == SyncStrategy::Move, |element| {
-                        element.child(self.render_move_options(cx))
-                    })
-                    .when(self.shows_filters(), |element| {
-                        element.child(self.render_filters(cx))
-                    })
-                    .child(self.render_verification(network, cx))
-                    .when(self.strategy == SyncStrategy::Mirror, |element| {
-                        element.child(self.render_deletions(cx))
-                    }),
-            )
-            .when_some(blocked.clone(), |element, reason| {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // No card, no title, no footer: the workspace row it opens inside is the frame, and its
+        // accept/discard pair sits up beside the summary line rather than below the fold.
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .child(self.render_fields(cx))
+            .when_some(self.blocked_reason(cx), |element, reason| {
                 element.child(HintBox::new(reason).tone(HintTone::Danger))
             })
-            .child(
-                dialog_footer()
-                    .child(
-                        Button::new("destination-cancel", "Cancel")
-                            .tone(ButtonTone::Secondary)
-                            .on_click(cx.listener(|_, _, _, cx| {
-                                cx.emit(DestinationEditorEvent::Cancelled)
-                            })),
-                    )
-                    .child(
-                        Button::new("destination-save", "Save")
-                            .disabled(blocked.is_some())
-                            .on_click(cx.listener(|editor, _, _, cx| editor.save(cx))),
-                    ),
-            )
     }
 }
 
 impl DestinationEditor {
+    /// Everything the editor edits, in one column.
+    fn render_fields(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let path = self.path_text(cx);
+        let network = !path.is_empty() && is_network(Path::new(&path));
+
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(16.))
+            .child(
+                div()
+                    .child(field_label("Name"))
+                    .child(Input::new(&self.name)),
+            )
+            .child(self.render_folder(cx))
+            .when(self.task_kind == SyncTaskKind::Sync, |element| {
+                element.child(self.render_strategy(cx))
+            })
+            .when(self.strategy == SyncStrategy::Move, |element| {
+                element.child(self.render_move_options(cx))
+            })
+            .when(self.shows_filters(), |element| {
+                element.child(self.render_filters(cx))
+            })
+            .when(self.catch_all, |element| {
+                element.child(HintBox::new(
+                    "This rule takes everything the rules above it left, so it has no file \
+                     selection of its own.",
+                ))
+            })
+            .child(self.render_verification(network, cx))
+            .when(self.strategy == SyncStrategy::Mirror, |element| {
+                element.child(self.render_deletions(cx))
+            })
+    }
+
     fn render_folder(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .child(field_label("Destination folder"))

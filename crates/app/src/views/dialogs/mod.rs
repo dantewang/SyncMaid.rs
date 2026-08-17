@@ -11,11 +11,13 @@ mod confirm;
 mod destination_editor;
 mod settings;
 mod task_editor;
+mod task_workspace;
 
 pub use confirm::{ConfirmDialog, ConfirmEvent};
-pub use destination_editor::{DestinationEditor, DestinationEditorEvent};
+pub use destination_editor::DestinationEditor;
 pub use settings::{SettingsDialog, SettingsEvent};
 pub use task_editor::{TaskEditor, TaskEditorEvent};
+pub use task_workspace::{TaskWorkspace, TaskWorkspaceEvent};
 
 use gpui::{div, prelude::*, px, Div, Pixels};
 

@@ -1,4 +1,5 @@
 pub mod dialogs;
+pub mod mirror_delete;
 
 mod main_view;
 

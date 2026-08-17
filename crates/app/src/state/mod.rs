@@ -14,6 +14,7 @@ mod overlap;
 mod preview;
 mod routing;
 mod run_gate;
+mod triggers;
 mod workspace;
 
 pub use filters::{FilterEntry, FilterGroup, FilterKind, FilterModel, Summary};
@@ -22,4 +23,5 @@ pub use overlap::{destination_conflict, sibling_conflict, source_conflict, Confl
 pub use preview::{scan, ContestedFile, DestinationPreview, ExtensionChip, Scan};
 pub use routing::subsumes;
 pub use run_gate::{RunGate, RunStart};
+pub use triggers::{TriggerEvent, TriggerHost, TriggerStart};
 pub use workspace::Workspace;

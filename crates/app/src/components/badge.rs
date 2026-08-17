@@ -1,6 +1,7 @@
 //! The small pills on a task card: what kind it is, what triggers it, when it next runs.
 
-use gpui::{div, prelude::*, px, IntoElement, RenderOnce, SharedString, Window};
+use gpui::{div, prelude::*, px, ElementId, IntoElement, RenderOnce, SharedString, Window};
+use gpui_component::tooltip::Tooltip;
 
 use crate::components::{icon, Icon};
 use crate::theme;
@@ -23,6 +24,8 @@ pub struct Badge {
     label: SharedString,
     glyph: Option<Icon>,
     tone: BadgeTone,
+    /// The long form. A badge is a headline; when there is more to say, this is where it goes.
+    tooltip: Option<(ElementId, SharedString)>,
 }
 
 impl Badge {
@@ -31,7 +34,14 @@ impl Badge {
             label: label.into(),
             glyph: None,
             tone: BadgeTone::Quiet,
+            tooltip: None,
         }
+    }
+
+    /// Adds a hover explanation. The id is what gpui needs to track the hover.
+    pub fn tooltip(mut self, id: impl Into<ElementId>, text: impl Into<SharedString>) -> Self {
+        self.tooltip = Some((id.into(), text.into()));
+        self
     }
 
     pub fn glyph(mut self, glyph: Icon) -> Self {
@@ -58,7 +68,15 @@ impl RenderOnce for Badge {
             BadgeTone::Warn => (theme::WARNING_SUBTLE, theme::WARNING),
         };
 
+        // The id has to be there before any styling, because a tooltip needs a stateful
+        // element and the two branches must produce the same type.
+        let (id, tooltip) = match self.tooltip {
+            Some((id, text)) => (id, Some(text)),
+            None => (ElementId::from("badge"), None),
+        };
+
         div()
+            .id(id)
             .flex()
             .flex_row()
             .items_center()
@@ -73,5 +91,8 @@ impl RenderOnce for Badge {
                 element.child(icon(glyph, px(12.), theme::color(foreground)))
             })
             .child(self.label)
+            .when_some(tooltip, |element, text| {
+                element.tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+            })
     }
 }

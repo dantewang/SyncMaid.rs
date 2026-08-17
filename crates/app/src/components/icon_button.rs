@@ -5,6 +5,8 @@ use gpui::{
     Window, WindowControlArea,
 };
 
+use gpui_component::tooltip::Tooltip;
+
 use crate::components::{icon, ClickHandler, Icon};
 use crate::theme;
 
@@ -154,6 +156,13 @@ impl RenderOnce for IconButton {
 
         if let Some(area) = self.window_control {
             element = element.window_control_area(area);
+        }
+
+        // Before the disabled branch: a disabled button keeps its tooltip, because the tooltip
+        // is usually the reason it is disabled.
+        if let Some(tooltip) = self.tooltip {
+            element =
+                element.tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx));
         }
 
         if self.disabled {

@@ -106,7 +106,7 @@ fn open_main_window(
         {
             let captured = Rc::clone(&captured);
             move |window, cx| {
-                let view = cx.new(|_| MainView::new(workspace, file_system));
+                let view = cx.new(|cx| MainView::new(workspace, file_system, cx));
                 *captured.borrow_mut() = Some(view.clone());
                 // Root is what gives the window its dialog, sheet and notification layers.
                 let any: gpui::AnyView = view.into();

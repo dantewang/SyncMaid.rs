@@ -2,6 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
+
+use chrono::{DateTime, Local};
 
 use gpui::{
     div, img, prelude::*, px, Context, Entity, FontWeight, SharedString, Subscription, Window,
@@ -12,19 +15,23 @@ use syncmaid_core::model::{
     Destination, DestinationSyncStatus, SyncOutcome, SyncStrategy, SyncTask, SyncTaskKind,
 };
 use syncmaid_core::sync::{SyncEngine, SyncOperation, SyncProgress};
-use syncmaid_core::triggers::Trigger;
+use syncmaid_core::triggers::{CronSchedule, DefaultTriggerSourceFactory, Notification, Trigger};
 use uuid::Uuid;
 
 use crate::components::{
-    icon, Badge, Button, ButtonTone, HintBox, HintTone, Icon, IconButton, IconButtonTone,
+    icon, Badge, BadgeTone, Button, ButtonTone, HintBox, HintTone, Icon, IconButton, IconButtonTone,
 };
-use crate::state::{health_of, RunGate, Workspace};
+use crate::state::{health_of, RunGate, TriggerEvent, TriggerHost, Workspace};
 use crate::theme;
 use crate::views::dialogs::{
     ConfirmDialog, ConfirmEvent, SettingsDialog, SettingsEvent, TaskEditor, TaskEditorEvent,
     TaskWorkspace, TaskWorkspaceEvent,
 };
 use crate::views::mirror_delete::{self, MirrorDeleteDecision};
+
+/// How often the "next run in ..." labels are re-made. Often enough that a minutes-away label
+/// is never wrong by much, rare enough to cost nothing while the window sits idle.
+const NEXT_RUN_REFRESH: Duration = Duration::from_secs(30);
 
 /// Which modal is open, and what it will do when it says yes.
 enum ActiveDialog {
@@ -53,11 +60,25 @@ pub struct MainView {
     dialog: Option<ActiveDialog>,
     /// Dropped when the dialog closes, which is what unsubscribes it.
     dialog_subscription: Option<Subscription>,
+
+    /// The live trigger runners. Dropping this stops every one of them.
+    triggers: TriggerHost,
+    /// Why a task will not run automatically, keyed by task. Shown as an amber badge.
+    trigger_errors: HashMap<Uuid, String>,
+    /// When each scheduled task fires next, refreshed on a timer so the label stays honest.
+    next_runs: HashMap<Uuid, DateTime<Local>>,
 }
 
 impl MainView {
-    pub fn new(workspace: Workspace, file_system: Arc<dyn FileSystem>) -> Self {
-        Self {
+    pub fn new(
+        workspace: Workspace,
+        file_system: Arc<dyn FileSystem>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let factory = Arc::new(DefaultTriggerSourceFactory::new(Arc::clone(&file_system)));
+        let (triggers, events) = TriggerHost::new(factory);
+
+        let mut view = Self {
             engine: Arc::new(SyncEngine::local(Arc::clone(&file_system))),
             workspace,
             file_system,
@@ -65,7 +86,99 @@ impl MainView {
             progress: HashMap::new(),
             dialog: None,
             dialog_subscription: None,
+            triggers,
+            trigger_errors: HashMap::new(),
+            next_runs: HashMap::new(),
+        };
+        view.sync_triggers(cx);
+
+        // Trigger runners fire from their own threads; this is where what they say arrives
+        // somewhere it is safe to act on.
+        cx.spawn(async move |view, cx| {
+            while let Ok(event) = events.recv_async().await {
+                if view
+                    .update(cx, |view, cx| view.on_trigger(event, cx))
+                    .is_err()
+                {
+                    return; // The window is gone.
+                }
+            }
+        })
+        .detach();
+
+        // "next run in 2 h" is a claim that goes stale by itself, so it is re-made on a timer
+        // rather than only when something else happens to redraw.
+        cx.spawn(async move |view, cx| loop {
+            cx.background_executor().timer(NEXT_RUN_REFRESH).await;
+            let refreshed = view.update(cx, |view, cx| {
+                view.refresh_next_runs();
+                cx.notify();
+            });
+            if refreshed.is_err() {
+                return;
+            }
+        })
+        .detach();
+
+        view
+    }
+
+    fn on_trigger(&mut self, event: TriggerEvent, cx: &mut Context<Self>) {
+        match event.notification {
+            Notification::Fired => self.run_task(event.task_id, HashSet::new(), cx),
+            // The reason stays as the OS produced it; only the sentence around it is ours.
+            Notification::Error(reason) => {
+                self.trigger_errors.insert(
+                    event.task_id,
+                    format!("This task's trigger stopped working: {reason}"),
+                );
+                cx.notify();
+            }
+            Notification::Recovered => {
+                self.trigger_errors.remove(&event.task_id);
+                cx.notify();
+            }
         }
+    }
+
+    /// Brings the running triggers in line with the tasks, after anything that changed them.
+    fn sync_triggers(&mut self, cx: &mut Context<Self>) {
+        let tasks = self.workspace.tasks().to_vec();
+        for start in self.triggers.reconcile(&tasks) {
+            match start.error {
+                // Degraded to manual-only — but said out loud, because a task that silently
+                // never runs is the worst of the three outcomes.
+                Some(reason) => self.trigger_errors.insert(
+                    start.task_id,
+                    format!("This task will not run automatically: {reason}"),
+                ),
+                None => self.trigger_errors.remove(&start.task_id),
+            };
+        }
+        self.refresh_next_runs();
+        cx.notify();
+    }
+
+    /// Recomputes when each scheduled task fires next.
+    ///
+    /// A cron expression that will not parse, or has no future occurrence at all, simply has no
+    /// next run — the trigger reports its own failure separately.
+    fn refresh_next_runs(&mut self) {
+        let now = Local::now();
+        self.next_runs = self
+            .workspace
+            .tasks()
+            .iter()
+            .filter_map(|task| match &task.trigger {
+                Trigger::Scheduled { cron_expression } => {
+                    let next = CronSchedule::parse(cron_expression)
+                        .ok()?
+                        .next_occurrence_after(now)?;
+                    Some((task.id, next))
+                }
+                _ => None,
+            })
+            .collect();
     }
 
     /// Opens one modal by name, for `SyncMaid.exe --show <dialog>`.
@@ -186,6 +299,8 @@ impl MainView {
             |view, _, event: &TaskEditorEvent, cx| match event {
                 TaskEditorEvent::Saved(task) => {
                     view.workspace.upsert_task((**task).clone());
+                    // The trigger or the source may have changed under it.
+                    view.sync_triggers(cx);
                     view.close_dialog(cx);
                 }
                 TaskEditorEvent::Cancelled => view.close_dialog(cx),
@@ -308,6 +423,9 @@ impl MainView {
                 if let Some(gate) = self.gates.remove(&task_id) {
                     gate.refuse_further_requests();
                 }
+                self.triggers.stop(task_id);
+                self.trigger_errors.remove(&task_id);
+                self.next_runs.remove(&task_id);
                 self.workspace.remove_task(task_id);
             }
             PendingAction::DeleteDestination { task, destination } => {
@@ -799,7 +917,28 @@ impl MainView {
             .child(
                 Button::new("run-all", "Run all")
                     .tone(ButtonTone::Secondary)
-                    .glyph(Icon::Play),
+                    .glyph(Icon::Play)
+                    // Every task at once, but each behind its own gate: runs of one task are
+                    // serialized, runs of different tasks are not.
+                    .disabled(
+                        !self
+                            .workspace
+                            .tasks()
+                            .iter()
+                            .any(|task| !task.destinations.is_empty()),
+                    )
+                    .on_click(cx.listener(|view, _, _, cx| {
+                        let runnable: Vec<Uuid> = view
+                            .workspace
+                            .tasks()
+                            .iter()
+                            .filter(|task| !task.destinations.is_empty())
+                            .map(|task| task.id)
+                            .collect();
+                        for id in runnable {
+                            view.run_task(id, HashSet::new(), cx);
+                        }
+                    })),
             )
             .child(
                 Button::new("new-task", "New task")
@@ -899,6 +1038,11 @@ impl MainView {
                                             .flex_row()
                                             .items_center()
                                             .gap(px(8.))
+                                            // Wraps rather than truncates. Every badge says
+                                            // something the name does not, and a card that
+                                            // grows a line is cheaper than a fact that
+                                            // silently disappears off the right edge.
+                                            .flex_wrap()
                                             .child(
                                                 div()
                                                     .text_size(theme::text::large())
@@ -906,7 +1050,17 @@ impl MainView {
                                                     .child(task.name.clone()),
                                             )
                                             .child(kind_badge(task.kind()))
-                                            .child(trigger_badge(&task.trigger)),
+                                            .child(trigger_badge(&task.trigger))
+                                            .children(
+                                                self.next_runs
+                                                    .get(&id)
+                                                    .map(|next| next_run_badge(id, *next)),
+                                            )
+                                            .children(
+                                                self.trigger_errors
+                                                    .get(&id)
+                                                    .map(|reason| trigger_error_badge(id, reason)),
+                                            ),
                                     )
                                     .child(path_text(&task.source_path)),
                             ),
@@ -1166,6 +1320,48 @@ fn kind_badge(kind: SyncTaskKind) -> Badge {
         SyncTaskKind::Sync => Badge::new("Sync").glyph(Icon::Sync),
         SyncTaskKind::Move => Badge::new("Move").glyph(Icon::CallSplit),
     }
+}
+
+/// `next run in 2 h`. Relative, because that is the question being asked — with the absolute
+/// time on hover, which never goes stale between refreshes.
+fn next_run_badge(task_id: Uuid, next: DateTime<Local>) -> Badge {
+    Badge::new(format!("next run {}", humanize(next - Local::now())))
+        .glyph(Icon::ClockOutline)
+        .tone(BadgeTone::Live)
+        .tooltip(
+            SharedString::from(format!("next-run-{task_id}")),
+            next.format("%Y-%m-%d %H:%M").to_string(),
+        )
+}
+
+/// Rounded down to the coarsest unit that still says something useful. "in 90 minutes" is
+/// arithmetic; "in 1 h" is an answer.
+fn humanize(span: chrono::TimeDelta) -> String {
+    if span <= chrono::TimeDelta::zero() {
+        return "due now".to_owned();
+    }
+    if span < chrono::TimeDelta::minutes(1) {
+        return "in under a minute".to_owned();
+    }
+    if span < chrono::TimeDelta::hours(1) {
+        return format!("in {} min", span.num_minutes());
+    }
+    if span < chrono::TimeDelta::days(1) {
+        return format!("in {} h", span.num_hours());
+    }
+    format!("in {} d", span.num_days())
+}
+
+/// The task will not run by itself. Amber rather than red: what is broken is the automation,
+/// not the task — Run now still works.
+fn trigger_error_badge(task_id: Uuid, reason: &str) -> Badge {
+    Badge::new("Trigger error")
+        .glyph(Icon::AlertOutline)
+        .tone(BadgeTone::Warn)
+        .tooltip(
+            SharedString::from(format!("trigger-error-{task_id}")),
+            reason.to_owned(),
+        )
 }
 
 fn trigger_badge(trigger: &Trigger) -> Badge {

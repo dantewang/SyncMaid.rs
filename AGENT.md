@@ -21,17 +21,28 @@ engineer around them.
 
 ## UI implementation
 
-- **Pick the right dialog host.** In-window modals are for flows the user starts from the
-  visible main window (editors, delete confirms). Anything that can appear while the app is
-  hidden in the tray — the mirror-delete confirmation — must be an independent top-level
-  window, or nobody sees it.
-- **The title bar is drawn by us**, so the native behaviours survive only through
-  `WindowControlArea`: `Drag` on the strip, `Min`/`Max`/`Close` on the buttons. Windows 11's
-  snap-layout flyout comes from `Max` being declared, not from anything we draw.
+- **Pick the right dialog host.** `Window::open_dialog` — `gpui-component`'s dialog layer — is for
+  flows the user starts from the visible main window (editors, delete confirms). Anything that
+  can appear while the app is hidden in the tray — the mirror-delete confirmation — must be an
+  independent top-level window, or nobody sees it.
+- **`Root` holds the dialog stack; it does not draw it.** The application's own root view has to
+  render `Root::render_dialog_layer` and `render_notification_layer` as children, or
+  `open_dialog` succeeds and shows nothing.
+- **Do not open a dialog from inside `WindowHandle::update`.** That closure already holds `Root`
+  borrowed, and `open_dialog` wants it too. `Window::defer` moves the call one tick later.
+- **The title bar is the system's.** `TitlebarOptions { appears_transparent: false, .. }`, so
+  dragging, the system menu, double-click to maximize and Windows 11's snap-layout flyout are
+  the OS's to provide rather than ours to re-implement.
 - **`WindowOptions::window_bounds` is in logical pixels.** GPUI applies the display scale
   itself; scaling the request as well opens a window that is scale-times too big with the UI
   painted into one corner. `Window::viewport_size()` is likewise already in layout units and
   must not be divided by `scale_factor()`.
+- **Colour comes from the theme, never from a constant.** `cx.theme().danger`, not a hex literal:
+  the palette is `gpui-component`'s Ayu Light, loaded from a compiled-in JSON. A hard-coded
+  colour is a piece of the UI that stops following the theme forward.
+- **Icons are Lucide, reached through `Glyph`.** Most resolve to an `IconName`; the dozen with no
+  variant (Play, Stop, Refresh, Trash, Pencil, Clock, Funnel …) resolve to an SVG under
+  `assets/icons`. Add a glyph in one place, not at the call site.
 - **Measure screenshots with a DPI-aware process.** Windows virtualizes `GetWindowRect` and
   `PrintWindow` for DPI-unaware callers, dividing everything back down — which hides exactly
   the class of bug above. Call `SetProcessDpiAwarenessContext(-4)` first.

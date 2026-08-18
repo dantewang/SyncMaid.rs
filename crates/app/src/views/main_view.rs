@@ -1,4 +1,4 @@
-//! The main window: title bar, task sidebar, task list.
+//! The main window: a task sidebar, the task list, and the settings page it swaps to.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -7,8 +7,17 @@ use std::time::Duration;
 use chrono::{DateTime, FixedOffset, Local};
 
 use gpui::{
-    div, img, prelude::*, px, Context, Entity, FontWeight, SharedString, Subscription, Window,
-    WindowControlArea,
+    div, prelude::*, px, App, Context, Entity, FontWeight, Hsla, ScrollHandle, SharedString,
+    Subscription, Window,
+};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::sidebar::{
+    Sidebar, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarToggleButton,
+};
+use gpui_component::tooltip::Tooltip;
+use gpui_component::{
+    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Root,
+    Sizable as _, WindowExt as _,
 };
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{
@@ -18,35 +27,27 @@ use syncmaid_core::sync::{SyncEngine, SyncOperation, SyncProgress};
 use syncmaid_core::triggers::{CronSchedule, DefaultTriggerSourceFactory, Notification, Trigger};
 use uuid::Uuid;
 
-use crate::components::{
-    icon, Badge, BadgeTone, Button, ButtonTone, HintBox, HintTone, Icon, IconButton, IconButtonTone,
-};
+use crate::components::Glyph;
 use crate::state::{health_of, RunGate, TriggerEvent, TriggerHost, Workspace};
 use crate::strings;
 use crate::theme;
 use crate::views::dialogs::{
-    ConfirmDialog, ConfirmEvent, SettingsDialog, SettingsEvent, TaskEditor, TaskEditorEvent,
-    TaskWorkspace, TaskWorkspaceEvent,
+    Prompt, TaskEditor, TaskEditorEvent, TaskWorkspace, TaskWorkspaceEvent,
 };
 use crate::views::mirror_delete::{self, MirrorDeleteDecision};
+use crate::views::{SettingsEvent, SettingsView};
 
 /// How often the "next run in ..." labels are re-made. Often enough that a minutes-away label
 /// is never wrong by much, rare enough to cost nothing while the window sits idle.
 const NEXT_RUN_REFRESH: Duration = Duration::from_secs(30);
 
-/// Which modal is open, and what it will do when it says yes.
-enum ActiveDialog {
-    Confirm(Entity<ConfirmDialog>),
-    TaskEditor(Entity<TaskEditor>),
-    Workspace(Entity<TaskWorkspace>),
-    Settings(Entity<SettingsDialog>),
-}
-
-/// What a confirmation is confirming.
-#[derive(Debug, Clone, Copy)]
-enum PendingAction {
-    DeleteTask(Uuid),
-    DeleteDestination { task: Uuid, destination: Uuid },
+/// Which of the two things the window body is showing.
+///
+/// Deliberately not persisted. Settings is somewhere you go and come back from, not a mode the
+/// app should still be in tomorrow morning.
+enum Route {
+    Tasks,
+    Settings(Entity<SettingsView>),
 }
 
 /// The main window's content.
@@ -58,9 +59,11 @@ pub struct MainView {
     gates: HashMap<Uuid, Arc<RunGate>>,
     /// Live progress text per destination, replaced by the row's status when the run ends.
     progress: HashMap<Uuid, String>,
-    dialog: Option<ActiveDialog>,
+    route: Route,
     /// Dropped when the dialog closes, which is what unsubscribes it.
     dialog_subscription: Option<Subscription>,
+    /// So picking a task in the sidebar can bring its card into view.
+    task_list: ScrollHandle,
 
     /// The live trigger runners. Dropping this stops every one of them.
     triggers: TriggerHost,
@@ -85,8 +88,9 @@ impl MainView {
             file_system,
             gates: HashMap::new(),
             progress: HashMap::new(),
-            dialog: None,
+            route: Route::Tasks,
             dialog_subscription: None,
+            task_list: ScrollHandle::new(),
             triggers,
             trigger_errors: HashMap::new(),
             next_runs: HashMap::new(),
@@ -182,7 +186,7 @@ impl MainView {
             .collect();
     }
 
-    /// Opens one modal by name, for `SyncMaid.exe --show <dialog>`.
+    /// Opens one dialog by name, for `SyncMaid.exe --show <dialog>`.
     ///
     /// Several of these sit three clicks deep; checking one should not need those three clicks.
     pub fn show_dialog(&mut self, dialog: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -253,8 +257,8 @@ impl MainView {
                     let Some(task) = self.workspace.task(id) else {
                         return;
                     };
-                    let confirm = ConfirmDialog::delete_task(&task.name, task.destinations.len());
-                    self.open_confirm(confirm, PendingAction::DeleteTask(id), cx);
+                    let prompt = Prompt::delete_task(&task.name, task.destinations.len());
+                    self.confirm_delete_task(prompt, id, window, cx);
                 }
             }
             other => tracing::warn!("no dialog called {other:?}"),
@@ -274,12 +278,6 @@ impl MainView {
         )
     }
 
-    fn close_dialog(&mut self, cx: &mut Context<Self>) {
-        self.dialog = None;
-        self.dialog_subscription = None;
-        cx.notify();
-    }
-
     fn open_task_editor(
         &mut self,
         task_id: Option<Uuid>,
@@ -295,19 +293,42 @@ impl MainView {
             None => TaskEditor::new_task(tasks, file_system, window, cx),
         });
 
-        self.dialog_subscription = Some(cx.subscribe(
+        self.dialog_subscription = Some(cx.subscribe_in(
             &editor,
-            |view, _, event: &TaskEditorEvent, cx| match event {
-                TaskEditorEvent::Saved(task) => {
+            window,
+            |view, _, event: &TaskEditorEvent, window, cx| {
+                if let TaskEditorEvent::Saved(task) = event {
                     view.workspace.upsert_task((**task).clone());
                     // The trigger or the source may have changed under it.
                     view.sync_triggers(cx);
-                    view.close_dialog(cx);
                 }
-                TaskEditorEvent::Cancelled => view.close_dialog(cx),
+                view.dismiss_dialog(window, cx);
             },
         ));
-        self.dialog = Some(ActiveDialog::TaskEditor(editor));
+
+        // The builder runs once a frame, so it may only clone and read — never act.
+        let editor = editor.clone();
+        window.open_dialog(cx, move |dialog, window, _| {
+            dialog
+                .w(px(470.))
+                // The dialog draws its own card but not its own limit: without this a tall
+                // editor grows past the window and takes Save with it.
+                .max_h(window.viewport_size().height - px(80.))
+                .title(strings::task_editor_title())
+                .close_button(false)
+                .footer({
+                    let editor = editor.clone();
+                    move |_, _, _, cx| TaskEditor::footer(&editor, cx)
+                })
+                .child(editor.clone())
+                .on_cancel({
+                    let editor = editor.clone();
+                    move |_, _, cx| {
+                        editor.update(cx, |_, cx| cx.emit(TaskEditorEvent::Cancelled));
+                        true
+                    }
+                })
+        });
         cx.notify();
     }
 
@@ -327,6 +348,7 @@ impl MainView {
         let Some(task) = self.workspace.task(task_id).cloned() else {
             return;
         };
+        let routing = task.kind() == SyncTaskKind::Move;
         let tasks = self.workspace.tasks().to_vec();
         let file_system = Arc::clone(&self.file_system);
 
@@ -342,17 +364,44 @@ impl MainView {
             )
         });
 
-        self.dialog_subscription = Some(cx.subscribe(
+        self.dialog_subscription = Some(cx.subscribe_in(
             &editor,
-            move |view, _, event: &TaskWorkspaceEvent, cx| match event {
-                TaskWorkspaceEvent::Saved(destinations) => {
+            window,
+            move |view, _, event: &TaskWorkspaceEvent, window, cx| {
+                if let TaskWorkspaceEvent::Saved(destinations) = event {
                     view.save_destinations(task_id, destinations.clone());
-                    view.close_dialog(cx);
                 }
-                TaskWorkspaceEvent::Cancelled => view.close_dialog(cx),
+                view.dismiss_dialog(window, cx);
             },
         ));
-        self.dialog = Some(ActiveDialog::Workspace(editor));
+
+        let editor = editor.clone();
+        window.open_dialog(cx, move |dialog, window, _| {
+            dialog
+                .w(px(760.))
+                .max_h(window.viewport_size().height - px(80.))
+                .title(TaskWorkspace::heading(routing))
+                .close_button(false)
+                .footer({
+                    let editor = editor.clone();
+                    move |_, _, _, cx| TaskWorkspace::footer(&editor, cx)
+                })
+                .child(editor.clone())
+                .on_cancel({
+                    let editor = editor.clone();
+                    move |_, _, cx| {
+                        editor.update(cx, |_, cx| cx.emit(TaskWorkspaceEvent::Cancelled));
+                        true
+                    }
+                })
+        });
+        cx.notify();
+    }
+
+    /// Closes whatever dialog is open and forgets its subscription.
+    fn dismiss_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.dialog_subscription = None;
+        window.close_all_dialogs(cx);
         cx.notify();
     }
 
@@ -361,11 +410,7 @@ impl MainView {
     /// Wholesale rather than one at a time, because for a Move task the order **is** the
     /// matching order: a merge that preserved the old positions would silently undo a reorder
     /// the user just made.
-    fn save_destinations(
-        &mut self,
-        task_id: Uuid,
-        destinations: Vec<syncmaid_core::model::Destination>,
-    ) {
+    fn save_destinations(&mut self, task_id: Uuid, destinations: Vec<Destination>) {
         let Some(mut task) = self.workspace.task(task_id).cloned() else {
             return;
         };
@@ -375,13 +420,14 @@ impl MainView {
         self.workspace.persist_statuses();
     }
 
+    /// Swaps the window body over to settings.
     fn open_settings(&mut self, cx: &mut Context<Self>) {
         let settings = self.workspace.settings().clone();
         let directory = self.workspace.data_directory().to_path_buf();
-        let dialog = cx.new(|_| SettingsDialog::new(settings, directory));
+        let view = cx.new(|_| SettingsView::new(settings, directory));
 
         self.dialog_subscription = Some(cx.subscribe(
-            &dialog,
+            &view,
             |view, _, event: &SettingsEvent, cx| match event {
                 // Applied the moment the switch is flipped; there is no save step.
                 SettingsEvent::Changed(settings) => {
@@ -390,55 +436,61 @@ impl MainView {
                         .update_settings(|current| *current = settings);
                     cx.notify();
                 }
-                SettingsEvent::Closed => view.close_dialog(cx),
+                SettingsEvent::Closed => {
+                    view.route = Route::Tasks;
+                    view.dialog_subscription = None;
+                    cx.notify();
+                }
             },
         ));
-        self.dialog = Some(ActiveDialog::Settings(dialog));
+        self.route = Route::Settings(view);
         cx.notify();
     }
 
-    fn open_confirm(
+    fn confirm_delete_task(
         &mut self,
-        dialog: ConfirmDialog,
-        action: PendingAction,
+        prompt: Prompt,
+        task_id: Uuid,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let entity = cx.new(|_| dialog);
-        self.dialog_subscription = Some(cx.subscribe(
-            &entity,
-            move |view, _, event: &ConfirmEvent, cx| {
-                if *event == ConfirmEvent::Confirmed {
-                    view.apply_pending(action, cx);
-                }
-                view.close_dialog(cx);
-            },
-        ));
-        self.dialog = Some(ActiveDialog::Confirm(entity));
-        cx.notify();
-    }
-
-    fn apply_pending(&mut self, action: PendingAction, _cx: &mut Context<Self>) {
-        match action {
-            PendingAction::DeleteTask(task_id) => {
+        let view = cx.entity();
+        prompt.open(window, cx, move |_, cx| {
+            view.update(cx, |view, cx| {
                 // Stop it first: a task that is mid-run must not keep writing after it is gone.
-                if let Some(gate) = self.gates.remove(&task_id) {
+                if let Some(gate) = view.gates.remove(&task_id) {
                     gate.refuse_further_requests();
                 }
-                self.triggers.stop(task_id);
-                self.trigger_errors.remove(&task_id);
-                self.next_runs.remove(&task_id);
-                self.workspace.remove_task(task_id);
-            }
-            PendingAction::DeleteDestination { task, destination } => {
-                if let Some(mut owner) = self.workspace.task(task).cloned() {
+                view.triggers.stop(task_id);
+                view.trigger_errors.remove(&task_id);
+                view.next_runs.remove(&task_id);
+                view.workspace.remove_task(task_id);
+                cx.notify();
+            });
+        });
+    }
+
+    fn confirm_delete_destination(
+        &mut self,
+        prompt: Prompt,
+        task_id: Uuid,
+        destination_id: Uuid,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = cx.entity();
+        prompt.open(window, cx, move |_, cx| {
+            view.update(cx, |view, cx| {
+                if let Some(mut owner) = view.workspace.task(task_id).cloned() {
                     owner
                         .destinations
-                        .retain(|existing| existing.id != destination);
-                    self.workspace.upsert_task(owner);
-                    self.workspace.persist_statuses();
+                        .retain(|existing| existing.id != destination_id);
+                    view.workspace.upsert_task(owner);
+                    view.workspace.persist_statuses();
                 }
-            }
-        }
+                cx.notify();
+            });
+        });
     }
 
     /// A destination is blocked on a mass-delete confirmation: preview the current deletions,
@@ -642,221 +694,105 @@ impl Render for MainView {
             .flex_col()
             .w(viewport.width)
             .h(viewport.height)
-            .bg(theme::color(theme::PAGE))
-            .text_size(theme::text::body())
-            .text_color(theme::color(theme::TEXT_PRIMARY))
-            .child(self.render_title_bar(cx))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .child(self.render_sidebar(cx))
-                    .child(self.render_main_pane(cx)),
-            )
-            .children(self.render_modal())
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
+            .child(match &self.route {
+                Route::Tasks => self.render_tasks(cx).into_any_element(),
+                // Settings takes the whole body, back arrow and all: it is somewhere you go,
+                // and a scrim over a task list you cannot touch says less than replacing it.
+                Route::Settings(view) => view.clone().into_any_element(),
+            })
+            // `Root` owns the dialog stack but does not draw it — the application's own root
+            // view has to, which is what puts the modals above everything here rather than
+            // behind it. Leave this out and `open_dialog` succeeds silently and shows nothing.
+            .children(Root::render_dialog_layer(window, cx))
+            .children(Root::render_notification_layer(window, cx))
     }
 }
 
 impl MainView {
-    /// The scrim and the one dialog on it.
-    ///
-    /// It covers the title bar too, which is deliberate: while a modal is open the window
-    /// cannot be dragged, and the app should look as unavailable as it is.
-    fn render_modal(&self) -> Option<impl IntoElement> {
-        let dialog = self.dialog.as_ref()?;
-        Some(
-            div()
-                .absolute()
-                .inset_0()
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(theme::color_with_alpha(theme::BACKDROP))
-                .child(match dialog {
-                    ActiveDialog::Confirm(entity) => entity.clone().into_any_element(),
-                    ActiveDialog::TaskEditor(entity) => entity.clone().into_any_element(),
-                    ActiveDialog::Workspace(entity) => entity.clone().into_any_element(),
-                    ActiveDialog::Settings(entity) => entity.clone().into_any_element(),
-                }),
-        )
-    }
-}
-
-impl MainView {
-    /// 40 px, app-drawn, with the OS still owning drag and the three window controls.
-    fn render_title_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .h(theme::layout::title_bar_height())
-            .child(
-                div()
-                    .id("title-bar-drag")
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .flex_1()
-                    .h_full()
-                    .pl(px(12.))
-                    .gap(px(8.))
-                    // Handing the strip to the OS is what keeps dragging, double-click to
-                    // maximize and Win+arrow snapping working on a bar we drew ourselves.
-                    .window_control_area(WindowControlArea::Drag)
-                    .child(img("syncmaid-32.png").size(px(16.)))
-                    .child(
-                        div()
-                            .text_size(theme::text::body())
-                            .text_color(theme::color(theme::TEXT_SECONDARY))
-                            .child("SyncMaid"),
-                    ),
-            )
-            .child(
-                IconButton::new("settings", Icon::CogOutline)
-                    .tone(IconButtonTone::Caption)
-                    .tooltip(strings::main_settings_tip())
-                    .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
-            )
-            .child(
-                IconButton::new("minimize", Icon::WindowMinimize)
-                    .tone(IconButtonTone::Caption)
-                    .tooltip(strings::main_minimize_tip())
-                    .window_control(WindowControlArea::Min),
-            )
-            .child(
-                IconButton::new("maximize", Icon::WindowMaximize)
-                    .tone(IconButtonTone::Caption)
-                    .tooltip(strings::main_maximize_tip())
-                    .window_control(WindowControlArea::Max),
-            )
-            .child(
-                IconButton::new("close", Icon::WindowClose)
-                    .tone(IconButtonTone::CaptionClose)
-                    .tooltip(strings::main_close_tip())
-                    .window_control(WindowControlArea::Close),
-            )
+    fn render_tasks(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .flex_1()
+            .min_w_0()
+            .items_start()
+            .overflow_hidden()
+            .child(self.render_sidebar(cx))
+            .child(self.render_main_pane(cx))
     }
 
-    /// The task list, or the thin rail it collapses to.
+    /// The task list, and the way into settings.
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        if !self.workspace.sidebar_visible() {
-            return div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .w(theme::layout::rail_width())
-                .pt(px(8.))
-                .child(
-                    IconButton::new("expand-sidebar", Icon::ChevronRight)
-                        .tone(IconButtonTone::Caption)
-                        .small()
-                        .tooltip(strings::main_show_sidebar_tip())
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.workspace.toggle_sidebar();
-                            cx.notify();
-                        })),
-                );
-        }
-
+        let collapsed = !self.workspace.sidebar_visible();
         let selected = self.workspace.selected();
-        let items: Vec<_> = self
+
+        let items: Vec<SidebarMenuItem> = self
             .workspace
             .tasks()
             .iter()
-            .map(|task| self.render_sidebar_item(task, selected == Some(task.id), cx))
+            .map(|task| {
+                let id = task.id;
+                let health = health_of(task, self.workspace.statuses());
+                let (glyph, color) = outcome_appearance(health.outcome, cx);
+                SidebarMenuItem::new(task.name.clone())
+                    .icon(Glyph::Folder)
+                    .active(selected == Some(id))
+                    // The source path used to sit under the name; a menu item has no room for
+                    // it. A health dot says more per pixel, and the path is on the card.
+                    .suffix(Icon::new(glyph).size(px(13.)).text_color(color))
+                    .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
+            })
             .collect();
 
-        div()
-            .flex()
-            .flex_col()
+        Sidebar::left()
             .w(theme::layout::sidebar_width())
-            .p(px(8.))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .pl(px(6.))
-                    .pt(px(6.))
-                    .pb(px(8.))
+            .collapsed(collapsed)
+            .header(
+                SidebarHeader::new()
                     .child(
                         div()
-                            .text_size(theme::text::small())
-                            .text_color(theme::color(theme::TEXT_SECONDARY))
+                            .flex_1()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
                             .child(strings::main_tasks_heading()),
                     )
                     .child(
-                        IconButton::new("collapse-sidebar", Icon::ChevronLeft)
-                            .tone(IconButtonTone::Caption)
-                            .small()
-                            .tooltip(strings::main_hide_sidebar_tip())
+                        SidebarToggleButton::left()
+                            .collapsed(collapsed)
                             .on_click(cx.listener(|view, _, _, cx| {
                                 view.workspace.toggle_sidebar();
                                 cx.notify();
                             })),
                     ),
             )
-            .child(
-                div()
-                    .id("sidebar-list")
-                    .flex()
-                    .flex_col()
-                    .overflow_y_scroll()
-                    .children(items),
+            .child(SidebarMenu::new().children(items))
+            .footer(
+                SidebarFooter::new().child(
+                    Button::new("open-settings")
+                        .icon(Glyph::Settings)
+                        .label(strings::settings_title())
+                        .ghost()
+                        .w_full()
+                        .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
+                ),
             )
     }
 
-    fn render_sidebar_item(
-        &self,
-        task: &SyncTask,
-        selected: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let id = task.id;
-        div()
-            .id(SharedString::from(format!("sidebar-{id}")))
-            .flex()
-            .flex_row()
-            .items_center()
-            .my(px(1.))
-            .px(px(8.))
-            .py(px(6.))
-            .rounded(theme::radius::control())
-            .when(selected, |element| {
-                element.bg(theme::color(theme::TEAL_SUBTLE))
-            })
-            .hover(|style| style.bg(theme::color(theme::SUBTLE)))
-            .cursor_pointer()
-            .on_click(cx.listener(move |view, _, _, cx| {
-                view.workspace.select(id);
-                cx.notify();
-            }))
-            .child(div().mr(px(9.)).child(icon(
-                Icon::FolderOutline,
-                px(18.),
-                theme::color(theme::TEAL),
-            )))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .text_size(theme::text::medium())
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(theme::color(theme::TEAL))
-                            .text_ellipsis()
-                            .child(task.name.clone()),
-                    )
-                    .child(path_text(&task.source_path)),
-            )
+    /// Brings the chosen task's card into view.
+    ///
+    /// Selecting used to only highlight, which made the sidebar decoration. Scrolling keeps
+    /// every card reachable — filtering the list to one would not.
+    fn select_task(&mut self, task_id: Uuid, cx: &mut Context<Self>) {
+        self.workspace.select(task_id);
+        if let Some(index) = self
+            .workspace
+            .tasks()
+            .iter()
+            .position(|task| task.id == task_id)
+        {
+            self.task_list.scroll_to_item(index);
+        }
+        cx.notify();
     }
 
     fn render_main_pane(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -868,36 +804,31 @@ impl MainView {
             .collect();
         let all_expanded = self.workspace.all_expanded();
 
-        div()
-            .flex()
-            .flex_col()
+        v_flex()
             .flex_1()
             .min_w_0()
+            .h_full()
             .overflow_hidden()
-            .bg(theme::color(theme::SURFACE))
-            .rounded_tl(theme::radius::card())
+            .bg(cx.theme().background)
             .px(px(16.))
             .py(px(12.))
             .child(self.render_header(all_expanded, cx))
             .when(self.workspace.config_unreadable(), |element| {
                 element.child(div().pb(px(12.)).child(config_unreadable_banner()))
             })
-            .when(cards.is_empty(), |element| element.child(empty_state()))
+            .when(cards.is_empty(), |element| element.child(empty_state(cx)))
             .child(
-                div()
+                v_flex()
                     .id("task-list")
-                    .flex()
-                    .flex_col()
                     .flex_1()
                     .overflow_y_scroll()
+                    .track_scroll(&self.task_list)
                     .children(cards),
             )
     }
 
     fn render_header(&self, all_expanded: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_row()
+        h_flex()
             .items_center()
             .gap(px(8.))
             .pb(px(12.))
@@ -909,24 +840,23 @@ impl MainView {
                     .child(strings::main_sync_tasks_heading()),
             )
             .child(
-                Button::new(
-                    "toggle-expand",
-                    if all_expanded {
+                Button::new("toggle-expand")
+                    .label(if all_expanded {
                         strings::main_collapse_all()
                     } else {
                         strings::main_expand_all()
-                    },
-                )
-                .tone(ButtonTone::Secondary)
-                .on_click(cx.listener(move |view, _, _, cx| {
-                    view.workspace.set_all_expanded(!all_expanded);
-                    cx.notify();
-                })),
+                    })
+                    .outline()
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.workspace.set_all_expanded(!all_expanded);
+                        cx.notify();
+                    })),
             )
             .child(
-                Button::new("run-all", strings::main_run_all())
-                    .tone(ButtonTone::Secondary)
-                    .glyph(Icon::Play)
+                Button::new("run-all")
+                    .label(strings::main_run_all())
+                    .icon(Glyph::Run)
+                    .outline()
                     // Every task at once, but each behind its own gate: runs of one task are
                     // serialized, runs of different tasks are not.
                     .disabled(
@@ -950,8 +880,10 @@ impl MainView {
                     })),
             )
             .child(
-                Button::new("new-task", strings::main_new_task())
-                    .glyph(Icon::Plus)
+                Button::new("new-task")
+                    .label(strings::main_new_task())
+                    .icon(Glyph::Add)
+                    .primary()
                     .on_click(
                         cx.listener(|view, _, window, cx| view.open_task_editor(None, window, cx)),
                     ),
@@ -962,7 +894,7 @@ impl MainView {
         let id = task.id;
         let expanded = self.workspace.is_expanded(id);
         let health = health_of(task, self.workspace.statuses());
-        let (health_glyph, health_color) = outcome_appearance(health.outcome);
+        let (health_glyph, health_color) = outcome_appearance(health.outcome, cx);
         let running = health.outcome == SyncOutcome::Running;
         let rows: Vec<_> = task
             .destinations
@@ -977,46 +909,35 @@ impl MainView {
             })
             .collect();
 
-        div()
-            .flex()
-            .flex_col()
+        v_flex()
             .mb(px(12.))
-            .bg(theme::color(theme::SURFACE))
+            .bg(cx.theme().background)
             .border_1()
-            .border_color(theme::color(theme::HAIRLINE))
-            .rounded(theme::radius::card())
+            .border_color(cx.theme().border)
+            .rounded(cx.theme().radius_lg)
             .child(
-                div()
-                    .flex()
-                    .flex_row()
+                h_flex()
                     .items_center()
                     .m(px(10.))
                     .child(
-                        div()
-                            .flex()
-                            .flex_row()
+                        h_flex()
                             .items_center()
                             .flex_1()
                             .min_w_0()
                             .overflow_hidden()
                             .child(
-                                IconButton::new(
-                                    SharedString::from(format!("expand-{id}")),
-                                    if expanded {
-                                        Icon::ChevronDown
+                                Button::new(SharedString::from(format!("expand-{id}")))
+                                    .icon(if expanded {
+                                        Glyph::ChevronDown
                                     } else {
-                                        Icon::ChevronRight
-                                    },
-                                )
-                                .tone(IconButtonTone::Caption)
-                                .small()
-                                .glyph_size(px(18.))
-                                .on_click(cx.listener(
-                                    move |view, _, _, cx| {
+                                        Glyph::ChevronRight
+                                    })
+                                    .ghost()
+                                    .small()
+                                    .on_click(cx.listener(move |view, _, _, cx| {
                                         view.workspace.toggle_expanded(id);
                                         cx.notify();
-                                    },
-                                )),
+                                    })),
                             )
                             .child(
                                 div()
@@ -1026,25 +947,21 @@ impl MainView {
                                     .size(theme::layout::task_chip())
                                     .ml(px(4.))
                                     .mr(px(11.))
-                                    .rounded(theme::radius::block())
-                                    .bg(theme::color(theme::TEAL_SUBTLE))
-                                    .child(icon(
-                                        Icon::FolderOutline,
-                                        px(19.),
-                                        theme::color(theme::TEAL),
-                                    )),
+                                    .rounded(cx.theme().radius)
+                                    .bg(cx.theme().primary.opacity(0.12))
+                                    .child(
+                                        Icon::new(Glyph::Folder)
+                                            .size(px(19.))
+                                            .text_color(cx.theme().primary),
+                                    ),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
+                                v_flex()
                                     .flex_1()
                                     .min_w_0()
                                     .overflow_hidden()
                                     .child(
-                                        div()
-                                            .flex()
-                                            .flex_row()
+                                        h_flex()
                                             .items_center()
                                             .gap(px(8.))
                                             // Wraps rather than truncates. Every badge says
@@ -1054,7 +971,7 @@ impl MainView {
                                             .flex_wrap()
                                             .child(
                                                 div()
-                                                    .text_size(theme::text::large())
+                                                    .text_base()
                                                     .font_weight(FontWeight::MEDIUM)
                                                     .child(task.name.clone()),
                                             )
@@ -1063,112 +980,94 @@ impl MainView {
                                             .children(
                                                 self.next_runs
                                                     .get(&id)
-                                                    .map(|next| next_run_badge(id, *next)),
+                                                    .map(|next| next_run_badge(*next)),
                                             )
                                             .children(
                                                 self.trigger_errors
                                                     .get(&id)
-                                                    .map(|reason| trigger_error_badge(id, reason)),
+                                                    .map(|reason| trigger_error_badge(reason)),
                                             ),
                                     )
-                                    .child(path_text(&task.source_path)),
+                                    .child(path_text(&task.source_path, cx)),
                             ),
                     )
                     .child(
-                        div()
-                            .flex()
-                            .flex_row()
+                        h_flex()
                             .items_center()
                             .gap(px(14.))
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
+                                h_flex()
                                     .items_center()
                                     .gap(px(5.))
-                                    .text_color(theme::color(health_color))
-                                    .child(icon(health_glyph, px(15.), theme::color(health_color)))
+                                    .text_color(health_color)
+                                    .child(
+                                        Icon::new(health_glyph)
+                                            .size(px(15.))
+                                            .text_color(health_color),
+                                    )
                                     .child(health.text),
                             )
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
+                                h_flex()
                                     .gap(px(5.))
                                     .child(if running {
-                                        IconButton::new(
-                                            SharedString::from(format!("stop-{id}")),
-                                            Icon::Stop,
-                                        )
-                                        .tone(IconButtonTone::Danger)
-                                        .tooltip(strings::task_stop_tip())
-                                        .on_click(
-                                            cx.listener(move |view, _, _, cx| {
+                                        Button::new(SharedString::from(format!("stop-{id}")))
+                                            .icon(Glyph::Stop)
+                                            .danger()
+                                            .outline()
+                                            .small()
+                                            .tooltip(strings::task_stop_tip())
+                                            .on_click(cx.listener(move |view, _, _, cx| {
                                                 view.stop_task(id, cx)
-                                            }),
-                                        )
+                                            }))
                                     } else {
-                                        IconButton::new(
-                                            SharedString::from(format!("run-{id}")),
-                                            Icon::Play,
-                                        )
-                                        .tone(IconButtonTone::Run)
-                                        .tooltip(strings::task_run_now_tip())
-                                        .disabled(task.destinations.is_empty())
-                                        .on_click(
-                                            cx.listener(move |view, _, _, cx| {
+                                        Button::new(SharedString::from(format!("run-{id}")))
+                                            .icon(Glyph::Run)
+                                            .primary()
+                                            .outline()
+                                            .small()
+                                            .tooltip(strings::task_run_now_tip())
+                                            .disabled(task.destinations.is_empty())
+                                            .on_click(cx.listener(move |view, _, _, cx| {
                                                 view.run_task(id, HashSet::new(), cx)
-                                            }),
-                                        )
+                                            }))
                                     })
                                     .child(
-                                        IconButton::new(
-                                            SharedString::from(format!("add-{id}")),
-                                            Icon::Plus,
-                                        )
-                                        .tooltip(add_destination_hint(task.kind()))
-                                        .on_click(
-                                            cx.listener(move |view, _, window, cx| {
+                                        Button::new(SharedString::from(format!("add-{id}")))
+                                            .icon(Glyph::Add)
+                                            .outline()
+                                            .small()
+                                            .tooltip(add_destination_hint(task.kind()))
+                                            .on_click(cx.listener(move |view, _, window, cx| {
                                                 view.open_workspace(id, None, true, window, cx)
-                                            }),
-                                        ),
+                                            })),
                                     )
                                     .child(
-                                        IconButton::new(
-                                            SharedString::from(format!("edit-{id}")),
-                                            Icon::Pencil,
-                                        )
-                                        .glyph_size(px(15.))
-                                        .tooltip(strings::task_edit_tip())
-                                        .on_click(
-                                            cx.listener(move |view, _, window, cx| {
+                                        Button::new(SharedString::from(format!("edit-{id}")))
+                                            .icon(Glyph::Edit)
+                                            .outline()
+                                            .small()
+                                            .tooltip(strings::task_edit_tip())
+                                            .on_click(cx.listener(move |view, _, window, cx| {
                                                 view.open_task_editor(Some(id), window, cx)
-                                            }),
-                                        ),
+                                            })),
                                     )
                                     .child(
-                                        IconButton::new(
-                                            SharedString::from(format!("delete-{id}")),
-                                            Icon::TrashCanOutline,
-                                        )
-                                        .glyph_size(px(15.))
-                                        .tooltip(strings::task_delete_tip())
-                                        .on_click(
-                                            cx.listener(move |view, _, _, cx| {
+                                        Button::new(SharedString::from(format!("delete-{id}")))
+                                            .icon(Glyph::Trash)
+                                            .outline()
+                                            .small()
+                                            .tooltip(strings::task_delete_tip())
+                                            .on_click(cx.listener(move |view, _, window, cx| {
                                                 let Some(task) = view.workspace.task(id) else {
                                                     return;
                                                 };
-                                                let dialog = ConfirmDialog::delete_task(
+                                                let prompt = Prompt::delete_task(
                                                     &task.name,
                                                     task.destinations.len(),
                                                 );
-                                                view.open_confirm(
-                                                    dialog,
-                                                    PendingAction::DeleteTask(id),
-                                                    cx,
-                                                );
-                                            }),
-                                        ),
+                                                view.confirm_delete_task(prompt, id, window, cx);
+                                            })),
                                     ),
                             ),
                     ),
@@ -1184,35 +1083,29 @@ impl MainView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let outcome = status.map_or(SyncOutcome::Never, |status| status.outcome);
-        let (glyph, color) = outcome_appearance(outcome);
+        let (glyph, color) = outcome_appearance(outcome, cx);
         let id = destination.id;
 
-        div()
-            .flex()
-            .flex_row()
+        h_flex()
             .items_center()
             // Only a top hairline: the rows read as one block rather than a stack of boxes.
             .border_t_1()
-            .border_color(theme::color(theme::HAIRLINE))
+            .border_color(cx.theme().border)
             .pl(px(16.))
             .pr(px(12.))
             .py(px(10.))
             .child(
                 div()
                     .mr(px(11.))
-                    .child(icon(glyph, px(17.), theme::color(color))),
+                    .child(Icon::new(glyph).size(px(17.)).text_color(color)),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_col()
+                v_flex()
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
                     .child(
-                        div()
-                            .flex()
-                            .flex_row()
+                        h_flex()
                             .items_center()
                             .gap(px(8.))
                             .child(div().child(destination.name.clone()))
@@ -1223,14 +1116,14 @@ impl MainView {
                             })
                             .child(filter_badge(destination)),
                     )
-                    .child(path_text(destination.local_path())),
+                    .child(path_text(destination.local_path(), cx)),
             )
             .child(
                 div()
                     .max_w(px(280.))
                     .overflow_hidden()
                     .text_ellipsis()
-                    .text_color(theme::color(color))
+                    .text_color(color)
                     // A live progress line takes the row over while the run is going.
                     .child(
                         self.progress
@@ -1240,67 +1133,59 @@ impl MainView {
                     ),
             )
             .child(
-                div()
-                    .flex()
-                    .flex_row()
+                h_flex()
                     .gap(px(5.))
                     .ml(px(12.))
                     .when(outcome == SyncOutcome::NeedsConfirmation, |element| {
                         element.child(
-                            IconButton::new(
-                                SharedString::from(format!("review-{id}")),
-                                Icon::AlertOutline,
-                            )
-                            .small()
-                            .tone(IconButtonTone::Danger)
-                            .tooltip(strings::task_review_deletions_tip())
-                            .on_click(cx.listener(
-                                move |view, _, _, cx| view.review_deletions(task_id, id, cx),
-                            )),
+                            Button::new(SharedString::from(format!("review-{id}")))
+                                .icon(Glyph::Warning)
+                                .danger()
+                                .outline()
+                                .xsmall()
+                                .tooltip(strings::task_review_deletions_tip())
+                                .on_click(cx.listener(move |view, _, _, cx| {
+                                    view.review_deletions(task_id, id, cx)
+                                })),
                         )
                     })
                     .child(
-                        IconButton::new(
-                            SharedString::from(format!("edit-dest-{id}")),
-                            Icon::Pencil,
-                        )
-                        .small()
-                        .tooltip(strings::dest_edit_tip())
-                        .on_click(cx.listener(
-                            move |view, _, window, cx| {
+                        Button::new(SharedString::from(format!("edit-dest-{id}")))
+                            .icon(Glyph::Edit)
+                            .ghost()
+                            .xsmall()
+                            .tooltip(strings::dest_edit_tip())
+                            .on_click(cx.listener(move |view, _, window, cx| {
                                 view.open_workspace(task_id, Some(id), false, window, cx)
-                            },
-                        )),
+                            })),
                     )
                     .child(
-                        IconButton::new(
-                            SharedString::from(format!("delete-dest-{id}")),
-                            Icon::TrashCanOutline,
-                        )
-                        .small()
-                        .tooltip(strings::dest_delete_tip())
-                        .on_click(cx.listener(move |view, _, _, cx| {
-                            let Some(name) = view
-                                .workspace
-                                .task(task_id)
-                                .and_then(|task| {
-                                    task.destinations
-                                        .iter()
-                                        .find(|candidate| candidate.id == id)
-                                })
-                                .map(|destination| destination.name.clone())
-                            else {
-                                return;
-                            };
-                            view.open_confirm(
-                                ConfirmDialog::delete_destination(&name),
-                                PendingAction::DeleteDestination {
-                                    task: task_id,
-                                    destination: id,
-                                },
-                                cx,
-                            );
-                        })),
+                        Button::new(SharedString::from(format!("delete-dest-{id}")))
+                            .icon(Glyph::Trash)
+                            .ghost()
+                            .xsmall()
+                            .tooltip(strings::dest_delete_tip())
+                            .on_click(cx.listener(move |view, _, window, cx| {
+                                let Some(name) = view
+                                    .workspace
+                                    .task(task_id)
+                                    .and_then(|task| {
+                                        task.destinations
+                                            .iter()
+                                            .find(|candidate| candidate.id == id)
+                                    })
+                                    .map(|destination| destination.name.clone())
+                                else {
+                                    return;
+                                };
+                                view.confirm_delete_destination(
+                                    Prompt::delete_destination(&name),
+                                    task_id,
+                                    id,
+                                    window,
+                                    cx,
+                                );
+                            })),
                     ),
             )
     }
@@ -1308,11 +1193,11 @@ impl MainView {
 
 /// Paths are monospaced and muted throughout, so a long one reads as reference rather than
 /// competing with the name above it.
-fn path_text(path: &str) -> impl IntoElement {
+fn path_text(path: &str, cx: &App) -> impl IntoElement {
     div()
-        .text_size(theme::text::small())
-        .text_color(theme::color(theme::TEXT_MUTED))
-        .font_family("Consolas")
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .font_family(cx.theme().mono_font_family.clone())
         .overflow_hidden()
         // Both are needed: without nowrap a long path wraps instead of ellipsizing, and a
         // wrapped path pushes everything below it out of line.
@@ -1330,25 +1215,34 @@ fn add_destination_hint(kind: SyncTaskKind) -> &'static str {
     }
 }
 
-fn kind_badge(kind: SyncTaskKind) -> Badge {
+/// A quiet pill. The badge row is a set of facts, not a set of alerts, so only the two that are
+/// genuinely about time or trouble get a colour of their own.
+fn badge(glyph: Glyph, label: impl Into<SharedString>) -> Tag {
+    Tag::secondary().rounded_full().child(
+        h_flex()
+            .gap(px(4.))
+            .items_center()
+            .child(Icon::new(glyph).size(px(12.)))
+            .child(label.into()),
+    )
+}
+
+fn kind_badge(kind: SyncTaskKind) -> Tag {
     match kind {
-        SyncTaskKind::Sync => Badge::new(strings::enum_sync_task_kind_sync()).glyph(Icon::Sync),
-        SyncTaskKind::Move => {
-            Badge::new(strings::enum_sync_task_kind_move()).glyph(Icon::CallSplit)
-        }
+        SyncTaskKind::Sync => badge(Glyph::Sync, strings::enum_sync_task_kind_sync()),
+        SyncTaskKind::Move => badge(Glyph::Route, strings::enum_sync_task_kind_move()),
     }
 }
 
-/// `next run in 2 h`. Relative, because that is the question being asked — with the absolute
-/// time on hover, which never goes stale between refreshes.
-fn next_run_badge(task_id: Uuid, next: DateTime<Local>) -> Badge {
-    Badge::new(strings::task_next_run_format(humanize(next - Local::now())))
-        .glyph(Icon::ClockOutline)
-        .tone(BadgeTone::Live)
-        .tooltip(
-            SharedString::from(format!("next-run-{task_id}")),
-            next.format("%Y-%m-%d %H:%M").to_string(),
-        )
+/// `next run in 2 h`. Relative, because that is the question being asked.
+fn next_run_badge(next: DateTime<Local>) -> Tag {
+    Tag::primary().rounded_full().child(
+        h_flex()
+            .gap(px(4.))
+            .items_center()
+            .child(Icon::new(Glyph::Clock).size(px(12.)))
+            .child(strings::task_next_run_format(humanize(next - Local::now()))),
+    )
 }
 
 /// Rounded down to the coarsest unit that still says something useful. "in 90 minutes" is
@@ -1370,42 +1264,53 @@ fn humanize(span: chrono::TimeDelta) -> String {
 }
 
 /// The task will not run by itself. Amber rather than red: what is broken is the automation,
-/// not the task — Run now still works.
-fn trigger_error_badge(task_id: Uuid, reason: &str) -> Badge {
-    Badge::new(strings::task_trigger_error_badge())
-        .glyph(Icon::AlertOutline)
-        .tone(BadgeTone::Warn)
-        .tooltip(
-            SharedString::from(format!("trigger-error-{task_id}")),
-            reason.to_owned(),
+/// not the task — Run now still works. The reason itself rides along as the tooltip.
+/// The task will not run by itself. Amber rather than red: what is broken is the automation,
+/// not the task — Run now still works. The reason itself rides along as the tooltip, because a
+/// badge wide enough to hold an OS error message is not a badge.
+fn trigger_error_badge(reason: &str) -> impl IntoElement {
+    let reason = reason.to_owned();
+    div()
+        .id("trigger-error")
+        .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
+        .child(
+            Tag::warning().rounded_full().child(
+                h_flex()
+                    .gap(px(4.))
+                    .items_center()
+                    .child(Icon::new(Glyph::Warning).size(px(12.)))
+                    .child(strings::task_trigger_error_badge()),
+            ),
         )
 }
 
-fn trigger_badge(trigger: &Trigger) -> Badge {
+fn trigger_badge(trigger: &Trigger) -> Tag {
     match trigger {
-        Trigger::Manual => {
-            Badge::new(strings::task_trigger_manual()).glyph(Icon::CursorDefaultClickOutline)
-        }
-        Trigger::Scheduled { cron_expression } => {
-            Badge::new(strings::task_trigger_scheduled_format(cron_expression))
-                .glyph(Icon::ClockOutline)
-        }
-        Trigger::Watch { .. } => Badge::new(strings::task_trigger_watching()).glyph(Icon::Eye),
+        Trigger::Manual => badge(Glyph::Manual, strings::task_trigger_manual()),
+        Trigger::Scheduled { cron_expression } => badge(
+            Glyph::Clock,
+            strings::task_trigger_scheduled_format(cron_expression),
+        ),
+        Trigger::Watch { .. } => badge(Glyph::Eye, strings::task_trigger_watching()),
     }
 }
 
-fn strategy_badge(strategy: SyncStrategy) -> Badge {
+fn strategy_badge(strategy: SyncStrategy) -> Tag {
     match strategy {
-        SyncStrategy::Mirror => Badge::new(strings::enum_sync_strategy_mirror()).glyph(Icon::Sync),
-        SyncStrategy::AddOnly => {
-            Badge::new(strings::enum_sync_strategy_add_only()).glyph(Icon::Plus)
-        }
-        SyncStrategy::Move => Badge::new(strings::enum_sync_strategy_move()).glyph(Icon::CallSplit),
+        SyncStrategy::Mirror => badge(Glyph::Sync, strings::enum_sync_strategy_mirror()),
+        SyncStrategy::AddOnly => badge(Glyph::Add, strings::enum_sync_strategy_add_only()),
+        SyncStrategy::Move => badge(Glyph::Route, strings::enum_sync_strategy_move()),
     }
 }
 
-fn filter_badge(destination: &Destination) -> Badge {
-    let label = if destination.has_only_the_all_files_filter() {
+fn filter_badge(destination: &Destination) -> Tag {
+    badge(Glyph::Filter, filter_summary(destination))
+}
+
+/// What the filter badge says. Split out from the badge itself so it can be asserted on without
+/// a window: the wording is the part that carries meaning.
+fn filter_summary(destination: &Destination) -> String {
+    if destination.has_only_the_all_files_filter() {
         strings::filter_all_files().to_owned()
     } else if destination.filters.is_empty() {
         // An empty filter list selects nothing, and the badge has to say so rather than
@@ -1413,8 +1318,7 @@ fn filter_badge(destination: &Destination) -> Badge {
         strings::dest_no_rules().to_owned()
     } else {
         strings::dest_filters_count(destination.filters.len() as i64)
-    };
-    Badge::new(label).glyph(Icon::FilterOutline)
+    }
 }
 
 fn status_text(status: Option<&DestinationSyncStatus>) -> String {
@@ -1465,29 +1369,32 @@ fn ago(last_run: Option<DateTime<FixedOffset>>) -> String {
     strings::time_days_ago_format(span.num_days())
 }
 
-/// One glyph and one colour per outcome, shared by the card summary and the rows beneath it.
-fn outcome_appearance(outcome: SyncOutcome) -> (Icon, u32) {
+/// One glyph and one colour per outcome, shared by the card summary, the rows beneath it and the
+/// sidebar's health dots.
+fn outcome_appearance(outcome: SyncOutcome, cx: &App) -> (Glyph, Hsla) {
     match outcome {
-        SyncOutcome::Never => (Icon::MinusCircle, theme::TEXT_MUTED),
-        SyncOutcome::Running => (Icon::Sync, theme::TEAL),
-        SyncOutcome::Success => (Icon::CheckCircle, theme::SUCCESS),
-        SyncOutcome::Incomplete => (Icon::MinusCircle, theme::WARNING),
-        SyncOutcome::Failed => (Icon::AlertCircle, theme::DANGER),
-        SyncOutcome::NeedsConfirmation => (Icon::AlertOutline, theme::WARNING),
+        SyncOutcome::Never => (Glyph::Idle, cx.theme().muted_foreground),
+        SyncOutcome::Running => (Glyph::Sync, cx.theme().primary),
+        SyncOutcome::Success => (Glyph::Success, cx.theme().success),
+        SyncOutcome::Incomplete => (Glyph::Idle, cx.theme().warning),
+        SyncOutcome::Failed => (Glyph::Failure, cx.theme().danger),
+        SyncOutcome::NeedsConfirmation => (Glyph::Warning, cx.theme().warning),
     }
 }
 
 fn config_unreadable_banner() -> impl IntoElement {
-    HintBox::new(strings::main_config_unreadable_detail()).tone(HintTone::Warning)
+    Alert::warning(
+        "config-unreadable",
+        strings::main_config_unreadable_detail(),
+    )
+    .title(strings::main_config_unreadable_title())
 }
 
-fn empty_state() -> impl IntoElement {
-    div()
-        .flex()
-        .flex_col()
+fn empty_state(cx: &App) -> impl IntoElement {
+    v_flex()
         .py(px(24.))
-        .text_size(theme::text::small())
-        .text_color(theme::color(theme::TEXT_SECONDARY))
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
         .child(strings::main_empty_state())
 }
 
@@ -1499,25 +1406,6 @@ mod tests {
 
     fn destination(strategy: SyncStrategy, filters: Vec<FilterRule>) -> Destination {
         Destination::new("D", r"D:\d", filters, strategy)
-    }
-
-    #[test]
-    fn every_outcome_has_its_own_glyph_and_colour() {
-        let outcomes = [
-            SyncOutcome::Never,
-            SyncOutcome::Running,
-            SyncOutcome::Success,
-            SyncOutcome::Incomplete,
-            SyncOutcome::Failed,
-            SyncOutcome::NeedsConfirmation,
-        ];
-        let appearances: Vec<_> = outcomes.iter().map(|o| outcome_appearance(*o)).collect();
-
-        assert_eq!(
-            (Icon::AlertCircle, theme::DANGER),
-            outcome_appearance(SyncOutcome::Failed)
-        );
-        assert_eq!(outcomes.len(), appearances.len());
     }
 
     #[test]
@@ -1550,31 +1438,28 @@ mod tests {
     fn a_filter_badge_says_all_files_only_for_the_lone_all_files_rule() {
         assert_eq!(
             "All files",
-            filter_badge(&destination(
+            filter_summary(&destination(
                 SyncStrategy::Mirror,
                 vec![FilterRule::AllFiles]
             ))
-            .label()
         );
         assert_eq!(
             "1 filter",
-            filter_badge(&destination(
+            filter_summary(&destination(
                 SyncStrategy::AddOnly,
                 vec![FilterRule::extension("jpg")]
             ))
-            .label()
         );
         assert_eq!(
             "2 filters",
-            filter_badge(&destination(
+            filter_summary(&destination(
                 SyncStrategy::AddOnly,
                 vec![FilterRule::extension("jpg"), FilterRule::extension("png")]
             ))
-            .label()
         );
         assert_eq!(
             "No rules",
-            filter_badge(&destination(SyncStrategy::AddOnly, vec![])).label(),
+            filter_summary(&destination(SyncStrategy::AddOnly, vec![])),
             "an empty filter list selects nothing, and the badge has to say so"
         );
     }

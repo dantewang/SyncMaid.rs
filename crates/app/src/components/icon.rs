@@ -1,105 +1,123 @@
-//! The icon set, lifted from the same Material Design Icons package the C# build drew from, so
-//! every glyph is the one that shipped rather than a lookalike.
+//! Every glyph SyncMaid draws, named for what it means rather than what it looks like.
+//!
+//! The set is Lucide throughout, reached two ways. Most names resolve to a `gpui-component`
+//! [`IconName`], so they cost nothing and follow the library forward. The rest resolve to an SVG
+//! under `assets/icons`, because `IconName` — 86 variants — happens to have no Play, Stop,
+//! Refresh, Trash, Pencil, Clock or Funnel, which is most of the verbs a sync app needs. Both
+//! halves are the same icon family, so the seam is invisible.
+//!
+//! Implementing [`IconNamed`] is the library's own extension point: a `Glyph` goes anywhere an
+//! `IconName` does — `Button::icon`, `SidebarMenuItem::icon`, `Icon::new`, `Alert::icon`.
 
-use gpui::{svg, Hsla, Pixels, SharedString, Styled as _, Svg};
+use gpui::SharedString;
+use gpui_component::{IconName, IconNamed};
 
-/// Every icon SyncMaid draws. Adding one means adding its SVG under `assets/icons`.
+/// See the module docs. Adding a variant means either finding an `IconName` for it or dropping
+/// its Lucide SVG into `assets/icons`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Icon {
-    AlertCircle,
-    AlertOutline,
-    ArrowDown,
-    ArrowRight,
-    ArrowUp,
-    Asterisk,
-    AsteriskCircleOutline,
-    CallSplit,
-    Cancel,
-    Check,
-    CheckCircle,
+pub enum Glyph {
+    // --- Navigation and structure ---
+    Back,
     ChevronDown,
     ChevronLeft,
     ChevronRight,
-    ClockOutline,
+    ArrowRight,
+    MoveUp,
+    MoveDown,
     Close,
-    CogOutline,
-    ContentCopy,
-    CursorDefaultClickOutline,
-    DeleteForeverOutline,
-    Eye,
-    EyeOutline,
-    FileTree,
-    FilterOutline,
-    FolderOutline,
-    MinusCircle,
-    Pencil,
-    Play,
-    Plus,
-    RecycleVariant,
+    /// Remove one row from a list.
+    Remove,
+
+    // --- Objects ---
+    Folder,
+    /// A Move destination: where files land.
+    Inbox,
+    /// "Keep the folder structure".
+    Tree,
+    /// A Move task's ordered routing table.
+    Route,
+    Filter,
+    /// The catch-all "everything else" rule.
+    Asterisk,
+
+    // --- Verbs ---
+    Run,
     Stop,
     Sync,
-    TrashCanOutline,
-    TrayArrowDown,
-    WindowClose,
-    WindowMaximize,
-    WindowMinimize,
-    WindowRestore,
+    Add,
+    Edit,
+    Trash,
+    Copy,
+    Settings,
+    /// Show what a filter or a plan would do.
+    Eye,
+    Check,
+
+    // --- Triggers ---
+    /// Run only when asked.
+    Manual,
+    /// A schedule.
+    Clock,
+
+    // --- Delete modes ---
+    /// Move to the recycle bin.
+    Recycle,
+
+    // --- Status, as a family of circles so a column of them reads as one scale ---
+    Success,
+    Warning,
+    Failure,
+    /// Never run, or finished with work left over.
+    Idle,
 }
 
-impl Icon {
-    /// Where the embedded SVG lives. The window-control names match what `gpui-component`'s
-    /// title bar asks for, which is why those four are spelled `window-*`.
-    pub fn path(self) -> SharedString {
-        let name = match self {
-            Self::AlertCircle => "alert-circle",
-            Self::AlertOutline => "alert-outline",
-            Self::ArrowDown => "arrow-down",
-            Self::ArrowRight => "arrow-right",
-            Self::ArrowUp => "arrow-up",
-            Self::Asterisk => "asterisk",
-            Self::AsteriskCircleOutline => "asterisk-circle-outline",
-            Self::CallSplit => "call-split",
-            Self::Cancel => "cancel",
-            Self::Check => "check",
-            Self::CheckCircle => "check-circle",
-            Self::ChevronDown => "chevron-down",
-            Self::ChevronLeft => "chevron-left",
-            Self::ChevronRight => "chevron-right",
-            Self::ClockOutline => "clock-outline",
-            Self::Close => "close",
-            Self::CogOutline => "cog-outline",
-            Self::ContentCopy => "content-copy",
-            Self::CursorDefaultClickOutline => "cursor-default-click-outline",
-            Self::DeleteForeverOutline => "delete-forever-outline",
-            Self::Eye => "eye",
-            Self::EyeOutline => "eye-outline",
-            Self::FileTree => "file-tree",
-            Self::FilterOutline => "filter-outline",
-            Self::FolderOutline => "folder-outline",
-            Self::MinusCircle => "minus-circle",
-            Self::Pencil => "pencil",
-            Self::Play => "play",
-            Self::Plus => "plus",
-            Self::RecycleVariant => "recycle-variant",
-            Self::Stop => "stop",
-            Self::Sync => "sync",
-            Self::TrashCanOutline => "trash-can-outline",
-            Self::TrayArrowDown => "tray-arrow-down",
-            Self::WindowClose => "window-close",
-            Self::WindowMaximize => "window-maximize",
-            Self::WindowMinimize => "window-minimize",
-            Self::WindowRestore => "window-restore",
-        };
-        format!("icons/{name}.svg").into()
+impl IconNamed for Glyph {
+    fn path(self) -> SharedString {
+        match self {
+            Self::Back => IconName::ArrowLeft.path(),
+            Self::ChevronDown => IconName::ChevronDown.path(),
+            Self::ChevronLeft => IconName::ChevronLeft.path(),
+            Self::ChevronRight => IconName::ChevronRight.path(),
+            Self::ArrowRight => IconName::ArrowRight.path(),
+            Self::MoveUp => IconName::ArrowUp.path(),
+            Self::MoveDown => IconName::ArrowDown.path(),
+            Self::Close => IconName::Close.path(),
+            Self::Remove => IconName::CircleX.path(),
+
+            Self::Folder => IconName::Folder.path(),
+            Self::Asterisk => IconName::Asterisk.path(),
+
+            Self::Add => IconName::Plus.path(),
+            Self::Copy => IconName::Copy.path(),
+            Self::Settings => IconName::Settings.path(),
+            Self::Eye => IconName::Eye.path(),
+            Self::Check => IconName::Check.path(),
+
+            Self::Success => IconName::CircleCheck.path(),
+            Self::Warning => IconName::TriangleAlert.path(),
+
+            // The supplements. See the module docs for why these are not `IconName`s.
+            Self::Inbox => supplement("import"),
+            Self::Tree => supplement("folder-tree"),
+            Self::Route => supplement("split"),
+            Self::Filter => supplement("funnel"),
+            Self::Run => supplement("play"),
+            Self::Stop => supplement("circle-stop"),
+            Self::Sync => supplement("refresh-cw"),
+            Self::Edit => supplement("pencil"),
+            Self::Trash => supplement("trash-2"),
+            Self::Manual => supplement("mouse-pointer-click"),
+            Self::Clock => supplement("clock"),
+            Self::Recycle => supplement("recycle"),
+            Self::Failure => supplement("circle-alert"),
+            Self::Idle => supplement("circle-minus"),
+        }
     }
 }
 
-/// Draws `icon` at `size`, tinted `color`.
-///
-/// GPUI renders an SVG as a coverage mask and paints it in the element's text colour, so the
-/// icon takes the colour it is given rather than the one in the file.
-pub fn icon(icon: Icon, size: Pixels, color: Hsla) -> Svg {
-    svg().path(icon.path()).size(size).text_color(color)
+/// One of ours. Same `icons/` namespace as `IconName`'s, which is why the names must not collide.
+fn supplement(name: &str) -> SharedString {
+    format!("icons/{name}.svg").into()
 }
 
 #[cfg(test)]
@@ -109,73 +127,66 @@ mod tests {
     use super::*;
     use crate::assets::Assets;
 
-    /// Every icon named here has to exist, or it renders as a silent blank.
+    /// Every glyph named here has to resolve, or it renders as a silent blank.
     #[test]
-    fn every_icon_has_an_embedded_svg() {
-        let all = [
-            Icon::AlertCircle,
-            Icon::AlertOutline,
-            Icon::ArrowDown,
-            Icon::ArrowRight,
-            Icon::ArrowUp,
-            Icon::Asterisk,
-            Icon::AsteriskCircleOutline,
-            Icon::CallSplit,
-            Icon::Cancel,
-            Icon::Check,
-            Icon::CheckCircle,
-            Icon::ChevronDown,
-            Icon::ChevronLeft,
-            Icon::ChevronRight,
-            Icon::ClockOutline,
-            Icon::Close,
-            Icon::CogOutline,
-            Icon::ContentCopy,
-            Icon::CursorDefaultClickOutline,
-            Icon::DeleteForeverOutline,
-            Icon::Eye,
-            Icon::EyeOutline,
-            Icon::FileTree,
-            Icon::FilterOutline,
-            Icon::FolderOutline,
-            Icon::MinusCircle,
-            Icon::Pencil,
-            Icon::Play,
-            Icon::Plus,
-            Icon::RecycleVariant,
-            Icon::Stop,
-            Icon::Sync,
-            Icon::TrashCanOutline,
-            Icon::TrayArrowDown,
-            Icon::WindowClose,
-            Icon::WindowMaximize,
-            Icon::WindowMinimize,
-            Icon::WindowRestore,
-        ];
-
-        for candidate in all {
+    fn every_glyph_has_an_embedded_svg() {
+        for candidate in ALL {
             let path = candidate.path();
             let loaded = Assets
                 .load(&path)
-                .unwrap_or_else(|error| panic!("{path}: {error}"));
-            assert!(loaded.is_some(), "{path} is not embedded");
+                .unwrap_or_else(|error| panic!("{candidate:?} ({path}): {error}"));
+            assert!(loaded.is_some(), "{candidate:?} ({path}) is not embedded");
         }
     }
 
+    /// Two glyphs pointing at one file is fine; two names for one *concept* is not, and this is
+    /// where that would first show up.
     #[test]
-    fn the_title_bars_icons_use_the_names_gpui_component_asks_for() {
-        assert_eq!("icons/window-close.svg", Icon::WindowClose.path().as_ref());
-        assert_eq!(
-            "icons/window-minimize.svg",
-            Icon::WindowMinimize.path().as_ref()
-        );
-        assert_eq!(
-            "icons/window-maximize.svg",
-            Icon::WindowMaximize.path().as_ref()
-        );
-        assert_eq!(
-            "icons/window-restore.svg",
-            Icon::WindowRestore.path().as_ref()
-        );
+    fn the_status_family_is_four_distinct_glyphs() {
+        let paths = [
+            Glyph::Success.path(),
+            Glyph::Warning.path(),
+            Glyph::Failure.path(),
+            Glyph::Idle.path(),
+        ];
+        let mut unique = paths.to_vec();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(paths.len(), unique.len(), "{paths:?}");
     }
+
+    const ALL: [Glyph; 32] = [
+        Glyph::Back,
+        Glyph::ChevronDown,
+        Glyph::ChevronLeft,
+        Glyph::ChevronRight,
+        Glyph::ArrowRight,
+        Glyph::MoveUp,
+        Glyph::MoveDown,
+        Glyph::Close,
+        Glyph::Remove,
+        Glyph::Folder,
+        Glyph::Inbox,
+        Glyph::Tree,
+        Glyph::Route,
+        Glyph::Filter,
+        Glyph::Asterisk,
+        Glyph::Run,
+        Glyph::Stop,
+        Glyph::Sync,
+        Glyph::Add,
+        Glyph::Edit,
+        Glyph::Trash,
+        Glyph::Copy,
+        Glyph::Settings,
+        Glyph::Eye,
+        Glyph::Check,
+        Glyph::Manual,
+        Glyph::Clock,
+        Glyph::Recycle,
+        Glyph::Success,
+        Glyph::Warning,
+        Glyph::Failure,
+        Glyph::Idle,
+    ];
 }

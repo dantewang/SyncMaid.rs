@@ -1,114 +1,58 @@
-//! The visual language, carried over from the Avalonia build.
+//! The theme, and the handful of sizes that are ours rather than the component library's.
 //!
-//! Deliberately small: one accent, three text greys, two hairlines, three semantic colours, no
-//! gradients, one shadow and one transition. Light only — the C# build pinned
-//! `RequestedThemeVariant="Light"` and never grew a dark theme, so neither does this.
+//! Everything about colour now comes from `gpui-component`: `cx.theme().foreground`,
+//! `cx.theme().danger`, and so on. The palette this module used to hold — sixteen `u32`
+//! constants transcribed from the Avalonia build — is gone on purpose. Hard-coded colours are
+//! why the app could not follow the component library forward, and why a dark mode would have
+//! meant repainting every element by hand.
 //!
-//! The accent is the cyan from the app icon's hair bow (`#36D6E2`), deepened to stay legible
-//! against white.
+//! What is left is `install`, plus the few fixed measurements no theme token covers.
 
-// The palette is complete; the tokens the dialogs use are waiting on the dialogs.
-#![allow(dead_code)]
+use std::rc::Rc;
 
-use gpui::{px, rgb, rgba, Hsla, Pixels};
+use gpui::{px, App, Pixels};
+use gpui_component::{Theme, ThemeMode, ThemeSet};
 
-/// Page background — the sidebar and title bar sit on this.
-pub const PAGE: u32 = 0xF7F7F4;
-/// Cards, dialogs and the main pane.
-pub const SURFACE: u32 = 0xFFFFFF;
-/// Hover fills and quiet chips.
-pub const SUBTLE: u32 = 0xF1F1ED;
-/// The 1 px line between things.
-pub const HAIRLINE: u32 = 0xE6E6E0;
-/// The 1 px line around things you can click.
-pub const HAIRLINE_STRONG: u32 = 0xD6D6CF;
+/// The theme set, compiled in.
+///
+/// Deliberately `include_str!` rather than `ThemeRegistry::watch_dir`, which is what the
+/// component library's own documentation suggests: that reads JSON from a `./themes` directory
+/// at run time, and SyncMaid ships as one executable with nothing beside it. A portable app
+/// that needs a folder of theme files is not portable.
+const THEMES: &str = include_str!("../assets/themes/ayu.json");
 
-pub const TEXT_PRIMARY: u32 = 0x1B1B18;
-pub const TEXT_SECONDARY: u32 = 0x6C6C66;
-pub const TEXT_MUTED: u32 = 0x9A9A92;
+/// The theme SyncMaid wears. Light only, as the Avalonia build was.
+const ACTIVE: &str = "Ayu Light";
 
-/// The brand accent.
-pub const TEAL: u32 = 0x1AA0B5;
-pub const TEAL_HOVER: u32 = 0x158799;
-pub const TEAL_PRESSED: u32 = 0x106E7D;
-pub const TEAL_SUBTLE: u32 = 0xE3F5F8;
+/// Applies [`ACTIVE`]. Call once, after `gpui_component::init`.
+pub fn install(cx: &mut App) {
+    let set: ThemeSet = match serde_json::from_str(THEMES) {
+        Ok(set) => set,
+        // A theme that will not parse is a cosmetic problem, not a reason to refuse to start:
+        // the component library's built-in light theme is still perfectly usable.
+        Err(error) => {
+            tracing::error!(%error, "the bundled theme could not be read; keeping the default");
+            return;
+        }
+    };
 
-pub const DANGER: u32 = 0xC53943;
-pub const DANGER_HOVER: u32 = 0xB00613;
-pub const DANGER_SUBTLE: u32 = 0xF9E7E8;
-/// Success shares the accent: a synced destination is the normal state, not a celebration.
-pub const SUCCESS: u32 = 0x1AA0B5;
-pub const WARNING: u32 = 0xC7810B;
-pub const WARNING_SUBTLE: u32 = 0xFBEFD6;
+    match set.themes.into_iter().find(|theme| theme.name == ACTIVE) {
+        Some(config) => Theme::global_mut(cx).apply_config(&Rc::new(config)),
+        None => tracing::error!("the bundled theme set has no {ACTIVE:?}; keeping the default"),
+    }
 
-/// The scrim behind an in-window modal.
-pub const BACKDROP: u32 = 0x00000066;
-/// The one shadow in the whole app, under a dialog card.
-pub const DIALOG_SHADOW: u32 = 0x00000040;
-
-/// An opaque `0xRRGGBB` token.
-pub fn color(value: u32) -> Hsla {
-    rgb(value).into()
+    // Explicit rather than relying on the default: the mode decides which of the set's two
+    // themes is the one being drawn.
+    Theme::change(ThemeMode::Light, None, cx);
 }
 
-/// An `0xRRGGBBAA` token, for the two places transparency is part of the design.
-pub fn color_with_alpha(value: u32) -> Hsla {
-    rgba(value).into()
-}
-
-/// Corner radii, smallest to largest: controls, blocks, pills, cards, dialogs.
-pub mod radius {
-    use super::*;
-
-    /// Buttons, inputs, badges' rows, sidebar items.
-    pub fn control() -> Pixels {
-        px(6.)
-    }
-    /// Chips, choice cards, filter groups, banners.
-    pub fn block() -> Pixels {
-        px(8.)
-    }
-    /// Badge pills.
-    pub fn pill() -> Pixels {
-        px(10.)
-    }
-    /// Task cards, and the main pane's top-left notch.
-    pub fn card() -> Pixels {
-        px(12.)
-    }
-    /// Dialog cards.
-    pub fn dialog() -> Pixels {
-        px(14.)
-    }
-}
-
-/// Type scale.
+/// Type sizes, in the two places the theme's own scale is not what the layout wants.
 pub mod text {
     use super::*;
 
-    /// Badges.
-    pub fn tiny() -> Pixels {
-        px(11.)
-    }
-    /// Muted labels, paths, secondary detail.
+    /// Badge and path text.
     pub fn small() -> Pixels {
         px(12.)
-    }
-    /// The body size everything defaults to.
-    pub fn body() -> Pixels {
-        px(13.)
-    }
-    /// Sidebar task names.
-    pub fn medium() -> Pixels {
-        px(14.)
-    }
-    /// Card titles.
-    pub fn large() -> Pixels {
-        px(15.)
-    }
-    /// Dialog titles.
-    pub fn dialog_title() -> Pixels {
-        px(16.)
     }
     /// The page heading.
     pub fn heading() -> Pixels {
@@ -120,31 +64,11 @@ pub mod text {
 pub mod layout {
     use super::*;
 
-    /// The app-drawn title bar.
-    pub fn title_bar_height() -> Pixels {
-        px(40.)
-    }
-    /// Each caption button in the title bar.
-    pub fn caption_button() -> (Pixels, Pixels) {
-        (px(44.), px(32.))
-    }
     /// The task list sidebar.
     pub fn sidebar_width() -> Pixels {
         px(210.)
     }
-    /// The strip left behind when the sidebar is collapsed.
-    pub fn rail_width() -> Pixels {
-        px(40.)
-    }
-    /// A row action button.
-    pub fn icon_button() -> Pixels {
-        px(32.)
-    }
-    /// The smaller icon button used inside rows and the sidebar header.
-    pub fn small_icon_button() -> Pixels {
-        px(26.)
-    }
-    /// The teal square holding a task's folder glyph.
+    /// The square holding a task's folder glyph.
     pub fn task_chip() -> Pixels {
         px(34.)
     }
@@ -155,20 +79,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_accent_is_the_icons_cyan_deepened_for_contrast() {
-        // Guards against someone "tidying" the palette into a generic blue.
-        assert_eq!(0x1AA0B5, TEAL);
-        assert_eq!(
-            TEAL, SUCCESS,
-            "a synced destination is the normal state, not a celebration"
+    fn the_bundled_theme_set_contains_the_one_we_ask_for() {
+        // A rename upstream would otherwise show up as the app quietly wearing the default
+        // theme, which is close enough to Ayu Light to go unnoticed for a long time.
+        let set: ThemeSet = serde_json::from_str(THEMES).expect("the bundled theme set parses");
+        assert!(
+            set.themes.iter().any(|theme| theme.name == ACTIVE),
+            "no {ACTIVE:?} in {:?}",
+            set.themes.iter().map(|t| &t.name).collect::<Vec<_>>()
         );
     }
 
     #[test]
-    fn colors_convert_without_losing_their_channels() {
-        let teal = color(TEAL);
-        let also_teal = color(TEAL);
-        assert_eq!(teal, also_teal);
-        assert_ne!(color(TEAL), color(DANGER));
+    fn the_theme_we_wear_is_a_light_one() {
+        let set: ThemeSet = serde_json::from_str(THEMES).expect("the bundled theme set parses");
+        let active = set
+            .themes
+            .into_iter()
+            .find(|theme| theme.name == ACTIVE)
+            .expect("the active theme is present");
+        assert!(!active.mode.is_dark());
     }
 }

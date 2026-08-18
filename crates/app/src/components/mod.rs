@@ -1,31 +1,12 @@
-//! The pieces the design needs that `gpui-component` does not ship.
+//! The one piece of chrome `gpui-component` does not ship.
 //!
-//! Everything here is flat, light-only and drawn from the palette in [`crate::theme`], because
-//! the design it is porting is.
+//! Everything else that used to live here — the buttons, badges, hint boxes, segmented pickers
+//! and checkboxes — is gone, replaced by the library's own. What is left is a glyph table
+//! ([`Glyph`], a semantic name per icon) and [`ChoiceCard`], which has no built-in counterpart:
+//! see its module docs for why it is worth keeping rather than flattening into a `RadioGroup`.
 
-// Each component ships its full set of tones and options; the dialogs that use the rest of
-// them are the next thing to land. Drop this once they have.
-#![allow(dead_code)]
-
-mod badge;
-mod button;
-mod checkbox;
 mod choice_card;
-mod hint_box;
 mod icon;
-mod icon_button;
-mod segment;
 
-use gpui::{App, ClickEvent, Window};
-
-/// What every clickable component stores. Named because the bare type is unreadable.
-pub(crate) type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
-
-pub use badge::{Badge, BadgeTone};
-pub use button::{Button, ButtonTone};
-pub use checkbox::Checkbox;
 pub use choice_card::ChoiceCard;
-pub use hint_box::{HintBox, HintTone};
-pub use icon::{icon, Icon};
-pub use icon_button::{IconButton, IconButtonTone};
-pub use segment::{Segment, SegmentOption};
+pub use icon::Glyph;

@@ -1,28 +1,33 @@
-//! The yes/no modal, used for the two destructive actions.
+//! The wording of the two destructive confirmations.
+//!
+//! Not a view any more: `gpui_component::dialog::Dialog` draws the card, the title and the button
+//! row, so all that is left is deciding what the question says and how loud the accept button
+//! should be.
+//!
+//! The footer is spelled out rather than taken from `Dialog::confirm()`, and that is the point.
+//! `confirm()` wires the accept action to `on_ok`, which the library also binds to Enter — and a
+//! destructive confirm a stray return key can approve is not a confirm. Leaving `on_ok` unset
+//! keeps Esc cancelling (the library gates both on one `keyboard` flag) while reducing Enter to
+//! "close", which is the safe direction.
 
-use gpui::{div, prelude::*, Context, EventEmitter, SharedString, Window};
+use std::rc::Rc;
 
-use crate::components::{Button, ButtonTone};
+use gpui::{div, prelude::*, px, App, SharedString, Window};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::{ActiveTheme as _, WindowExt as _};
+
 use crate::strings;
-use crate::theme;
-use crate::views::dialogs::{dialog_card, dialog_footer, dialog_title};
-
-/// What the user decided.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfirmEvent {
-    Confirmed,
-    Cancelled,
-}
 
 /// A confirmation the user asked for by clicking something destructive.
-pub struct ConfirmDialog {
+#[derive(Debug, Clone)]
+pub struct Prompt {
     title: SharedString,
     message: SharedString,
     confirm_label: SharedString,
     destructive: bool,
 }
 
-impl ConfirmDialog {
+impl Prompt {
     pub fn new(
         title: impl Into<SharedString>,
         message: impl Into<SharedString>,
@@ -63,48 +68,57 @@ impl ConfirmDialog {
         self
     }
 
-    fn confirm(&mut self, cx: &mut Context<Self>) {
-        cx.emit(ConfirmEvent::Confirmed);
-    }
+    /// Puts the question on screen. `accepted` runs only when the accept button is pressed.
+    pub fn open(
+        self,
+        window: &mut Window,
+        cx: &mut App,
+        accepted: impl Fn(&mut Window, &mut App) + 'static,
+    ) {
+        // The dialog builder is called once per frame, so anything it hands out has to be
+        // shareable rather than moved.
+        let accepted = Rc::new(accepted);
 
-    fn cancel(&mut self, cx: &mut Context<Self>) {
-        cx.emit(ConfirmEvent::Cancelled);
-    }
-}
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let destructive = self.destructive;
+            let confirm_label = self.confirm_label.clone();
+            let accepted = Rc::clone(&accepted);
 
-impl EventEmitter<ConfirmEvent> for ConfirmDialog {}
-
-impl Render for ConfirmDialog {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let tone = if self.destructive {
-            ButtonTone::Danger
-        } else {
-            ButtonTone::Primary
-        };
-
-        dialog_card(gpui::px(400.))
-            .gap(gpui::px(14.))
-            .child(dialog_title(self.title.clone()))
-            .child(
-                div()
-                    .text_color(theme::color(theme::TEXT_SECONDARY))
-                    .child(self.message.clone()),
-            )
-            .child(
-                dialog_footer()
-                    .child(
-                        Button::new("confirm-cancel", strings::common_cancel())
-                            .tone(ButtonTone::Secondary)
-                            .on_click(cx.listener(|dialog, _, _, cx| dialog.cancel(cx))),
-                    )
-                    // Enter is deliberately not bound to this button. A destructive confirm
-                    // that a stray return key can accept is not a confirm.
-                    .child(
-                        Button::new("confirm-ok", self.confirm_label.clone())
-                            .tone(tone)
-                            .on_click(cx.listener(|dialog, _, _, cx| dialog.confirm(cx))),
-                    ),
-            )
+            dialog
+                .w(px(400.))
+                .title(self.title.clone())
+                .close_button(false)
+                .overlay_closable(false)
+                .footer(move |_, _, _, _| {
+                    let accepted = Rc::clone(&accepted);
+                    vec![
+                        Button::new("confirm-cancel")
+                            .label(strings::common_cancel())
+                            .outline()
+                            .on_click(|_, window, cx| window.close_dialog(cx))
+                            .into_any_element(),
+                        Button::new("confirm-ok")
+                            .label(confirm_label.clone())
+                            .map(|button| {
+                                if destructive {
+                                    button.danger()
+                                } else {
+                                    button.primary()
+                                }
+                            })
+                            .on_click(move |_, window, cx| {
+                                window.close_dialog(cx);
+                                accepted(window, cx);
+                            })
+                            .into_any_element(),
+                    ]
+                })
+                .child(
+                    div()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(self.message.clone()),
+                )
+        });
     }
 }
 
@@ -114,30 +128,26 @@ mod tests {
 
     #[test]
     fn deleting_a_task_says_what_goes_with_it_and_what_does_not() {
-        let dialog = ConfirmDialog::delete_task("Photos", 2);
+        let prompt = Prompt::delete_task("Photos", 2);
 
-        assert!(dialog.message.contains("\"Photos\""));
-        assert!(dialog.message.contains("its 2 destinations"));
+        assert!(prompt.message.contains("\"Photos\""));
+        assert!(prompt.message.contains("its 2 destinations"));
         assert!(
-            dialog.message.contains("files at both ends are left alone"),
+            prompt.message.contains("files at both ends are left alone"),
             "the commonest fear on this button is that it deletes the files"
         );
     }
 
     #[test]
     fn the_destination_count_reads_naturally_at_one() {
-        assert!(ConfirmDialog::delete_task("Photos", 1)
+        assert!(Prompt::delete_task("Photos", 1)
             .message
             .contains("its 1 destination?"));
     }
 
     #[test]
     fn a_destructive_confirm_is_destructive_unless_told_otherwise() {
-        assert!(ConfirmDialog::delete_destination("NAS").destructive);
-        assert!(
-            !ConfirmDialog::delete_destination("NAS")
-                .benign()
-                .destructive
-        );
+        assert!(Prompt::delete_destination("NAS").destructive);
+        assert!(!Prompt::delete_destination("NAS").benign().destructive);
     }
 }

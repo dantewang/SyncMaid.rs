@@ -8,7 +8,13 @@
 use std::path::Path;
 
 use gpui::{div, prelude::*, px, App, Context, Entity, PathPromptOptions, SharedString, Window};
+use gpui_component::button::{Button, ButtonGroup, ButtonVariants as _};
+use gpui_component::form::{field, v_form, Field};
 use gpui_component::input::{Input, InputState};
+use gpui_component::{
+    alert::Alert, checkbox::Checkbox, h_flex, v_flex, ActiveTheme as _, Icon, Selectable as _,
+    Sizable as _, Size,
+};
 use syncmaid_core::io::{is_network, paths_overlap};
 use syncmaid_core::model::{
     DeleteMode, Destination, FileNameCollisionPolicy, SyncStrategy, SyncTask, SyncTaskKind,
@@ -16,13 +22,10 @@ use syncmaid_core::model::{
 };
 use uuid::Uuid;
 
-use crate::components::{
-    icon, Button, ButtonTone, Checkbox, ChoiceCard, HintBox, HintTone, Icon, IconButton,
-    IconButtonTone, Segment, SegmentOption,
-};
+use crate::components::{ChoiceCard, Glyph};
 use crate::state::{destination_conflict, FilterEntry, FilterGroup, FilterKind, FilterModel};
-use crate::views::dialogs::field_label;
-use crate::{strings, theme};
+
+use crate::strings;
 
 /// See the module docs.
 pub struct DestinationEditor {
@@ -369,13 +372,11 @@ impl Render for DestinationEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // No card, no title, no footer: the workspace row it opens inside is the frame, and its
         // accept/discard pair sits up beside the summary line rather than below the fold.
-        div()
-            .flex()
-            .flex_col()
+        v_flex()
             .gap(px(16.))
             .child(self.render_fields(cx))
             .when_some(self.blocked_reason(cx), |element, reason| {
-                element.child(HintBox::new(reason).tone(HintTone::Danger))
+                element.child(Alert::error("destination-blocked", reason))
             })
     }
 }
@@ -386,13 +387,10 @@ impl DestinationEditor {
         let path = self.path_text(cx);
         let network = !path.is_empty() && is_network(Path::new(&path));
 
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(16.))
+        v_form()
             .child(
-                div()
-                    .child(field_label(strings::common_name_label()))
+                field()
+                    .label(strings::common_name_label())
                     .child(Input::new(&self.name)),
             )
             .child(self.render_folder(cx))
@@ -406,7 +404,10 @@ impl DestinationEditor {
                 element.child(self.render_filters(cx))
             })
             .when(self.catch_all, |element| {
-                element.child(HintBox::new(strings::dest_editor_catch_all_hint()))
+                element.child(field().child(Alert::new(
+                    "catch-all",
+                    strings::dest_editor_catch_all_hint(),
+                )))
             })
             .child(self.render_verification(network, cx))
             .when(self.strategy == SyncStrategy::Mirror, |element| {
@@ -414,127 +415,145 @@ impl DestinationEditor {
             })
     }
 
-    fn render_folder(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .child(field_label(strings::dest_editor_folder_label()))
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .gap(px(8.))
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.path)))
-                    .child(
-                        Button::new("browse-destination", strings::common_browse())
-                            .tone(ButtonTone::Secondary)
-                            .glyph(Icon::FolderOutline)
-                            .on_click(
-                                cx.listener(|editor, _, window, cx| editor.browse(window, cx)),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .pt(px(6.))
-                    .child(HintBox::new(strings::workspace_sync_destination_hint())),
-            )
+    fn render_folder(&self, cx: &mut Context<Self>) -> Field {
+        field().label(strings::dest_editor_folder_label()).child(
+            v_flex()
+                .gap(px(6.))
+                .child(
+                    h_flex()
+                        .gap(px(8.))
+                        .child(div().flex_1().min_w_0().child(Input::new(&self.path)))
+                        .child(
+                            Button::new("browse-destination")
+                                .label(strings::common_browse())
+                                .icon(Glyph::Folder)
+                                .outline()
+                                .on_click(
+                                    cx.listener(|editor, _, window, cx| editor.browse(window, cx)),
+                                ),
+                        ),
+                )
+                .child(Alert::new(
+                    "destination-nesting",
+                    strings::workspace_sync_destination_hint(),
+                )),
+        )
     }
 
-    fn render_strategy(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_strategy(&self, cx: &mut Context<Self>) -> Field {
         let strategy = self.strategy;
-        div()
-            .child(field_label(strings::dest_editor_strategy_label()))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .child(
-                        ChoiceCard::new(
-                            "strategy-mirror",
-                            Icon::Sync,
-                            strings::enum_sync_strategy_mirror(),
-                            strings::dest_editor_mirror_desc2(),
-                        )
-                        .selected(strategy == SyncStrategy::Mirror)
-                        .on_click(cx.listener(|editor, _, _, cx| {
-                            editor.strategy = SyncStrategy::Mirror;
-                            cx.notify();
-                        })),
+
+        field().label(strings::dest_editor_strategy_label()).child(
+            v_flex()
+                .gap(px(8.))
+                .child(
+                    ChoiceCard::new(
+                        "strategy-mirror",
+                        Glyph::Sync,
+                        strings::enum_sync_strategy_mirror(),
+                        strings::dest_editor_mirror_desc2(),
                     )
-                    .child(
-                        ChoiceCard::new(
-                            "strategy-add-only",
-                            Icon::Plus,
-                            strings::enum_sync_strategy_add_only(),
-                            strings::dest_editor_add_only_desc(),
-                        )
-                        .selected(strategy == SyncStrategy::AddOnly)
-                        .on_click(cx.listener(|editor, _, _, cx| {
-                            editor.strategy = SyncStrategy::AddOnly;
-                            cx.notify();
-                        })),
-                    ),
-            )
+                    .selected(strategy == SyncStrategy::Mirror)
+                    .on_click(cx.listener(|editor, _, _, cx| {
+                        editor.strategy = SyncStrategy::Mirror;
+                        cx.notify();
+                    })),
+                )
+                .child(
+                    ChoiceCard::new(
+                        "strategy-add-only",
+                        Glyph::Add,
+                        strings::enum_sync_strategy_add_only(),
+                        strings::dest_editor_add_only_desc(),
+                    )
+                    .selected(strategy == SyncStrategy::AddOnly)
+                    .on_click(cx.listener(|editor, _, _, cx| {
+                        editor.strategy = SyncStrategy::AddOnly;
+                        cx.notify();
+                    })),
+                ),
+        )
     }
 
-    fn render_move_options(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_move_options(&self, cx: &mut Context<Self>) -> Field {
         let flatten = self.flatten;
         let collision = self.collision;
 
-        div()
-            .child(field_label(strings::dest_editor_move_options_label()))
+        field()
+            .label(strings::dest_editor_move_options_label())
             .child(
-                Segment::new(
-                    "move-layout",
-                    vec![
-                        SegmentOption::new(strings::dest_editor_keep_structure())
-                            .glyph(Icon::FileTree),
-                        SegmentOption::new(strings::dest_editor_flatten())
-                            .glyph(Icon::FolderOutline),
-                    ],
-                    usize::from(flatten),
-                )
-                .on_select(cx.listener(|editor, index: &usize, _, cx| {
-                    editor.flatten = *index == 1;
-                    cx.notify();
-                })),
-            )
-            .when(flatten, |element| {
-                element.child(
-                    div()
-                        .pt(px(10.))
-                        .child(field_label(strings::dest_editor_collision_label()))
-                        .child(
-                            Segment::new(
-                                "collision",
-                                vec![
-                                    SegmentOption::new(
-                                        strings::enum_file_name_collision_policy_skip(),
-                                    )
-                                    .glyph(Icon::MinusCircle),
-                                    SegmentOption::new(
-                                        strings::enum_file_name_collision_policy_suffix(),
-                                    )
-                                    .glyph(Icon::ContentCopy),
-                                ],
-                                usize::from(collision == FileNameCollisionPolicy::Suffix),
+                v_flex()
+                    .gap(px(10.))
+                    .child(
+                        ButtonGroup::new("move-layout")
+                            .outline()
+                            .child(
+                                Button::new("keep-structure")
+                                    .label(strings::dest_editor_keep_structure())
+                                    .icon(Glyph::Tree)
+                                    .selected(!flatten),
                             )
-                            .on_select(cx.listener(
-                                |editor, index: &usize, _, cx| {
-                                    editor.collision = if *index == 1 {
-                                        FileNameCollisionPolicy::Suffix
-                                    } else {
-                                        FileNameCollisionPolicy::Skip
-                                    };
+                            .child(
+                                Button::new("flatten")
+                                    .label(strings::dest_editor_flatten())
+                                    .icon(Glyph::Folder)
+                                    .selected(flatten),
+                            )
+                            .on_click(cx.listener(|editor, clicked: &Vec<usize>, _, cx| {
+                                if let Some(index) = clicked.first() {
+                                    editor.flatten = *index == 1;
                                     cx.notify();
-                                },
-                            )),
-                        ),
-                )
-            })
+                                }
+                            })),
+                    )
+                    .when(flatten, |element| {
+                        element.child(
+                            v_flex()
+                                .gap(px(5.))
+                                .child(sub_label(strings::dest_editor_collision_label(), cx))
+                                .child(
+                                    ButtonGroup::new("collision")
+                                        .outline()
+                                        .child(
+                                            Button::new("collision-skip")
+                                                .label(
+                                                    strings::enum_file_name_collision_policy_skip(),
+                                                )
+                                                .icon(Glyph::Idle)
+                                                .selected(
+                                                    collision == FileNameCollisionPolicy::Skip,
+                                                ),
+                                        )
+                                        .child(
+                                            Button::new("collision-suffix")
+                                                .label(
+                                                    strings::enum_file_name_collision_policy_suffix(
+                                                    ),
+                                                )
+                                                .icon(Glyph::Copy)
+                                                .selected(
+                                                    collision == FileNameCollisionPolicy::Suffix,
+                                                ),
+                                        )
+                                        .on_click(cx.listener(
+                                            |editor, clicked: &Vec<usize>, _, cx| {
+                                                if let Some(index) = clicked.first() {
+                                                    editor.collision = if *index == 1 {
+                                                        FileNameCollisionPolicy::Suffix
+                                                    } else {
+                                                        FileNameCollisionPolicy::Skip
+                                                    };
+                                                    cx.notify();
+                                                }
+                                            },
+                                        )),
+                                ),
+                        )
+                    }),
+            )
     }
 
-    fn render_filters(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_filters(&self, cx: &mut Context<Self>) -> Field {
         let all_files = self.filters.all_files;
         let several_groups = self.filters.groups.len() > 1;
         let groups: Vec<_> = self
@@ -545,73 +564,86 @@ impl DestinationEditor {
             .map(|(index, group)| self.render_group(index, group, several_groups, cx))
             .collect();
 
-        div()
-            .child(field_label(strings::dest_editor_files_to_sync_label()))
+        field()
+            .label(strings::dest_editor_files_to_sync_label())
             .child(
-                Segment::new(
-                    "filter-mode",
-                    vec![
-                        SegmentOption::new(strings::filter_all_files()).glyph(Icon::Asterisk),
-                        SegmentOption::new(strings::dest_editor_only_matching())
-                            .glyph(Icon::FilterOutline),
-                    ],
-                    usize::from(!all_files),
-                )
-                .on_select(cx.listener(|editor, index: &usize, _, cx| {
-                    editor.filters.all_files = *index == 0;
-                    if !editor.filters.all_files && editor.filters.groups.is_empty() {
-                        editor.filters.groups.push(FilterGroup::default());
-                    }
-                    cx.notify();
-                })),
-            )
-            .when(!all_files, |element| {
-                element
+                v_flex()
+                    .gap(px(10.))
                     .child(
-                        div()
-                            .pt(px(10.))
+                        ButtonGroup::new("filter-mode")
+                            .outline()
+                            .child(
+                                Button::new("filter-all")
+                                    .label(strings::filter_all_files())
+                                    .icon(Glyph::Asterisk)
+                                    .selected(all_files),
+                            )
+                            .child(
+                                Button::new("filter-matching")
+                                    .label(strings::dest_editor_only_matching())
+                                    .icon(Glyph::Filter)
+                                    .selected(!all_files),
+                            )
+                            .on_click(cx.listener(|editor, clicked: &Vec<usize>, _, cx| {
+                                let Some(index) = clicked.first() else {
+                                    return;
+                                };
+                                editor.filters.all_files = *index == 0;
+                                if !editor.filters.all_files && editor.filters.groups.is_empty() {
+                                    editor.filters.groups.push(FilterGroup::default());
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .when(!all_files, |element| {
+                        element
                             // Only worth asking once there is more than one group to combine.
                             .when(several_groups, |element| {
                                 element.child(
-                                    Segment::new(
-                                        "group-combine",
-                                        vec![
-                                            SegmentOption::new(
-                                                strings::dest_editor_match_any_group(),
-                                            ),
-                                            SegmentOption::new(
-                                                strings::dest_editor_match_all_groups(),
-                                            ),
-                                        ],
-                                        usize::from(self.filters.match_all_groups),
-                                    )
-                                    .small()
-                                    .on_select(cx.listener(
-                                        |editor, index: &usize, _, cx| {
-                                            editor.filters.match_all_groups = *index == 1;
-                                            cx.notify();
-                                        },
-                                    )),
+                                    ButtonGroup::new("group-combine")
+                                        .outline()
+                                        .compact()
+                                        .with_size(Size::Small)
+                                        .child(
+                                            Button::new("groups-any")
+                                                .label(strings::dest_editor_match_any_group())
+                                                .selected(!self.filters.match_all_groups),
+                                        )
+                                        .child(
+                                            Button::new("groups-all")
+                                                .label(strings::dest_editor_match_all_groups())
+                                                .selected(self.filters.match_all_groups),
+                                        )
+                                        .on_click(cx.listener(
+                                            |editor, clicked: &Vec<usize>, _, cx| {
+                                                if let Some(index) = clicked.first() {
+                                                    editor.filters.match_all_groups = *index == 1;
+                                                    cx.notify();
+                                                }
+                                            },
+                                        )),
                                 )
                             })
                             .children(groups)
                             .child(
-                                Button::new("add-group", strings::dest_editor_add_group())
-                                    .tone(ButtonTone::Secondary)
-                                    .glyph(Icon::Plus)
-                                    .on_click(cx.listener(|editor, _, window, cx| {
-                                        editor.add_group(window, cx)
-                                    })),
-                            ),
-                    )
-                    // The live plain-language line: the single best guard against a filter that
-                    // quietly selects the wrong thing.
-                    .child(
-                        div()
-                            .pt(px(10.))
-                            .child(HintBox::new(self.filters.describe()).glyph(Icon::EyeOutline)),
-                    )
-            })
+                                h_flex().child(
+                                    Button::new("add-group")
+                                        .label(strings::dest_editor_add_group())
+                                        .icon(Glyph::Add)
+                                        .outline()
+                                        .on_click(cx.listener(|editor, _, window, cx| {
+                                            editor.add_group(window, cx)
+                                        })),
+                                ),
+                            )
+                            // The live plain-language line: the single best guard against a
+                            // filter that quietly selects the wrong thing.
+                            .child(
+                                Alert::new("filter-summary", self.filters.describe())
+                                    .icon(Glyph::Eye),
+                            )
+                    }),
+            )
     }
 
     fn render_group(
@@ -629,88 +661,87 @@ impl DestinationEditor {
             .map(|(rule_index, rule)| self.render_rule(index, rule_index, rule, cx))
             .collect();
 
-        div()
-            .flex()
-            .flex_col()
-            .mt(px(8.))
+        v_flex()
+            .gap(px(6.))
             .p(px(10.))
-            .rounded(theme::radius::block())
+            .rounded(cx.theme().radius)
             .border_1()
-            .border_color(theme::color(theme::HAIRLINE))
+            .border_color(cx.theme().border)
             .child(
-                div()
-                    .flex()
-                    .flex_row()
+                h_flex()
                     .items_center()
                     .gap(px(8.))
-                    .pb(px(8.))
+                    .child(sub_label(strings::dest_editor_match_label(), cx))
                     .child(
-                        div()
-                            .text_size(theme::text::small())
-                            .text_color(theme::color(theme::TEXT_SECONDARY))
-                            .child(strings::dest_editor_match_label()),
-                    )
-                    .child(
-                        Segment::new(
-                            SharedString::from(format!("group-{index}-mode")),
-                            vec![
-                                SegmentOption::new(strings::dest_editor_any_rule()),
-                                SegmentOption::new(strings::dest_editor_all_rules()),
-                            ],
-                            usize::from(group.match_all),
-                        )
-                        .small()
-                        .on_select(cx.listener(
-                            move |editor, choice: &usize, _, cx| {
-                                if let Some(group) = editor.filters.groups.get_mut(index) {
-                                    group.match_all = *choice == 1;
+                        ButtonGroup::new(SharedString::from(format!("group-{index}-mode")))
+                            .outline()
+                            .compact()
+                            .with_size(Size::Small)
+                            .child(
+                                Button::new("any")
+                                    .label(strings::dest_editor_any_rule())
+                                    .selected(!group.match_all),
+                            )
+                            .child(
+                                Button::new("all")
+                                    .label(strings::dest_editor_all_rules())
+                                    .selected(group.match_all),
+                            )
+                            .on_click(cx.listener(move |editor, clicked: &Vec<usize>, _, cx| {
+                                if let Some(choice) = clicked.first() {
+                                    if let Some(group) = editor.filters.groups.get_mut(index) {
+                                        group.match_all = *choice == 1;
+                                    }
+                                    cx.notify();
                                 }
-                                cx.notify();
-                            },
-                        )),
+                            })),
                     )
                     .child(div().flex_1())
                     .when(removable, |element| {
                         element.child(
-                            IconButton::new(
-                                SharedString::from(format!("remove-group-{index}")),
-                                Icon::Close,
-                            )
-                            .small()
-                            .tone(IconButtonTone::Caption)
-                            .on_click(
-                                cx.listener(move |editor, _, _, cx| editor.remove_group(index, cx)),
-                            ),
+                            Button::new(SharedString::from(format!("remove-group-{index}")))
+                                .icon(Glyph::Close)
+                                .ghost()
+                                .xsmall()
+                                .on_click(cx.listener(move |editor, _, _, cx| {
+                                    editor.remove_group(index, cx)
+                                })),
                         )
                     }),
             )
             .children(rules)
             .child(
-                div()
-                    .flex()
-                    .flex_row()
+                h_flex()
                     .items_center()
                     .gap(px(8.))
-                    .pt(px(4.))
                     .child(
-                        Segment::new(
-                            SharedString::from(format!("group-{index}-kind")),
-                            vec![
-                                SegmentOption::new(strings::enum_filter_kind_path()),
-                                SegmentOption::new(strings::enum_filter_kind_extension()),
-                                SegmentOption::new(strings::enum_filter_kind_wildcard()),
-                            ],
-                            kind.index(),
-                        )
-                        .small()
-                        .on_select(cx.listener(
-                            move |editor, choice: &usize, _, cx| {
-                                if let Some(slot) = editor.group_kinds.get_mut(index) {
-                                    *slot = FilterKind::from_index(*choice);
+                        ButtonGroup::new(SharedString::from(format!("group-{index}-kind")))
+                            .outline()
+                            .compact()
+                            .with_size(Size::Small)
+                            .child(
+                                Button::new("path")
+                                    .label(strings::enum_filter_kind_path())
+                                    .selected(kind == FilterKind::Path),
+                            )
+                            .child(
+                                Button::new("extension")
+                                    .label(strings::enum_filter_kind_extension())
+                                    .selected(kind == FilterKind::Extension),
+                            )
+                            .child(
+                                Button::new("wildcard")
+                                    .label(strings::enum_filter_kind_wildcard())
+                                    .selected(kind == FilterKind::Wildcard),
+                            )
+                            .on_click(cx.listener(move |editor, clicked: &Vec<usize>, _, cx| {
+                                if let Some(choice) = clicked.first() {
+                                    if let Some(slot) = editor.group_kinds.get_mut(index) {
+                                        *slot = FilterKind::from_index(*choice);
+                                    }
+                                    cx.notify();
                                 }
-                                cx.notify();
-                            },
-                        )),
+                            })),
                     )
                     .child(
                         div()
@@ -719,22 +750,23 @@ impl DestinationEditor {
                             .children(self.group_inputs.get(index).map(Input::new)),
                     )
                     .child(
-                        Button::new(
-                            SharedString::from(format!("add-rule-{index}")),
-                            strings::common_add(),
-                        )
-                        .glyph(Icon::Plus)
-                        .on_click(cx.listener(
-                            move |editor, _, window, cx| editor.add_rule(index, window, cx),
-                        )),
+                        Button::new(SharedString::from(format!("add-rule-{index}")))
+                            .label(strings::common_add())
+                            .icon(Glyph::Add)
+                            .primary()
+                            .on_click(cx.listener(move |editor, _, window, cx| {
+                                editor.add_rule(index, window, cx)
+                            })),
                     ),
             )
             .when(kind == FilterKind::Wildcard, |element| {
                 element.child(
-                    div().pt(px(8.)).child(
-                        HintBox::new(strings::dest_editor_wildcard_hint())
-                            .glyph(Icon::AsteriskCircleOutline),
-                    ),
+                    Alert::new(
+                        SharedString::from(format!("wildcard-hint-{index}")),
+                        strings::dest_editor_wildcard_hint(),
+                    )
+                    .icon(Glyph::Asterisk)
+                    .with_size(Size::Small),
                 )
             })
     }
@@ -748,21 +780,18 @@ impl DestinationEditor {
     ) -> impl IntoElement {
         let excluded = rule.excluded;
 
-        div()
-            .flex()
-            .flex_row()
+        h_flex()
             .items_center()
             .gap(px(8.))
-            .mb(px(6.))
             .px(px(10.))
             .py(px(6.))
-            .rounded(theme::radius::control())
-            .bg(theme::color(theme::SUBTLE))
-            .child(icon(
-                Icon::FilterOutline,
-                px(15.),
-                theme::color(theme::TEXT_SECONDARY),
-            ))
+            .rounded(cx.theme().radius)
+            .bg(cx.theme().muted)
+            .child(
+                Icon::new(Glyph::Filter)
+                    .size(px(15.))
+                    .text_color(cx.theme().muted_foreground),
+            )
             .child(
                 div()
                     .flex_1()
@@ -773,121 +802,124 @@ impl DestinationEditor {
                     .child(describe_rule(rule)),
             )
             .child(
-                IconButton::new(
-                    SharedString::from(format!("exclude-{group}-{index}")),
-                    Icon::Cancel,
-                )
-                .small()
-                .glyph_size(px(13.))
-                .tone(if excluded {
-                    IconButtonTone::Danger
-                } else {
-                    IconButtonTone::Neutral
-                })
-                .tooltip(strings::dest_editor_exclude_tip())
-                .on_click(cx.listener(move |editor, _, _, cx| {
-                    if let Some(entry) = editor
-                        .filters
-                        .groups
-                        .get_mut(group)
-                        .and_then(|group| group.rules.get_mut(index))
-                    {
-                        entry.excluded = !entry.excluded;
-                    }
-                    cx.notify();
-                })),
-            )
-            .child(
-                IconButton::new(
-                    SharedString::from(format!("remove-rule-{group}-{index}")),
-                    Icon::Close,
-                )
-                .small()
-                .glyph_size(px(13.))
-                .on_click(cx.listener(move |editor, _, _, cx| {
-                    if let Some(group) = editor.filters.groups.get_mut(group) {
-                        group.rules.remove(index);
-                    }
-                    cx.notify();
-                })),
-            )
-    }
-
-    fn render_verification(&self, network: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        div()
-            .child(field_label(strings::dest_editor_verification_label()))
-            .child(
-                Checkbox::new(
-                    "verify-contents",
-                    strings::dest_editor_verify_contents(),
-                    self.verify_contents,
-                )
-                .on_toggle(cx.listener(|editor, _, _, cx| {
-                    editor.verify_contents = !editor.verify_contents;
-                    cx.notify();
-                })),
-            )
-            .when(network && self.verify_contents, |element| {
-                element.child(
-                    div().pt(px(6.)).child(
-                        HintBox::new(strings::dest_editor_verify_network_warning())
-                            .tone(HintTone::Danger),
-                    ),
-                )
-            })
-    }
-
-    fn render_deletions(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let confirming = self.confirm_large_deletions;
-
-        div()
-            .child(field_label(strings::dest_editor_delete_mode_label()))
-            .child(
-                Segment::new(
-                    "delete-mode",
-                    vec![
-                        SegmentOption::new(strings::enum_delete_mode_recycle())
-                            .glyph(Icon::RecycleVariant),
-                        SegmentOption::new(strings::enum_delete_mode_permanent())
-                            .glyph(Icon::DeleteForeverOutline),
-                    ],
-                    usize::from(self.delete_mode == DeleteMode::Permanent),
-                )
-                .on_select(cx.listener(|editor, index: &usize, _, cx| {
-                    editor.delete_mode = if *index == 1 {
-                        DeleteMode::Permanent
-                    } else {
-                        DeleteMode::Recycle
-                    };
-                    cx.notify();
-                })),
-            )
-            .child(
-                div().pt(px(10.)).child(
-                    Checkbox::new(
-                        "confirm-large",
-                        strings::dest_editor_confirm_large_deletions(),
-                        confirming,
-                    )
-                    .on_toggle(cx.listener(|editor, _, _, cx| {
-                        editor.confirm_large_deletions = !editor.confirm_large_deletions;
+                Button::new(SharedString::from(format!("exclude-{group}-{index}")))
+                    .icon(Glyph::Remove)
+                    .ghost()
+                    .xsmall()
+                    .map(|button| if excluded { button.danger() } else { button })
+                    .tooltip(strings::dest_editor_exclude_tip())
+                    .on_click(cx.listener(move |editor, _, _, cx| {
+                        if let Some(entry) = editor
+                            .filters
+                            .groups
+                            .get_mut(group)
+                            .and_then(|group| group.rules.get_mut(index))
+                        {
+                            entry.excluded = !entry.excluded;
+                        }
                         cx.notify();
                     })),
-                ),
             )
-            .when(confirming, |element| {
-                element.child(
-                    div()
-                        .pl(px(24.))
-                        .pt(px(8.))
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(strings::dest_editor_ask_when_deleting_more_than())
-                        .child(div().w(px(80.)).child(Input::new(&self.threshold)))
-                        .child(strings::dest_editor_percent_of_destination()),
-                )
-            })
+            .child(
+                Button::new(SharedString::from(format!("remove-rule-{group}-{index}")))
+                    .icon(Glyph::Close)
+                    .ghost()
+                    .xsmall()
+                    .on_click(cx.listener(move |editor, _, _, cx| {
+                        if let Some(group) = editor.filters.groups.get_mut(group) {
+                            group.rules.remove(index);
+                        }
+                        cx.notify();
+                    })),
+            )
     }
+
+    fn render_verification(&self, network: bool, cx: &mut Context<Self>) -> Field {
+        field()
+            .label(strings::dest_editor_verification_label())
+            .child(
+                v_flex()
+                    .gap(px(6.))
+                    .child(
+                        Checkbox::new("verify-contents")
+                            .label(strings::dest_editor_verify_contents())
+                            .checked(self.verify_contents)
+                            .on_click(cx.listener(|editor, checked: &bool, _, cx| {
+                                editor.verify_contents = *checked;
+                                cx.notify();
+                            })),
+                    )
+                    .when(network && self.verify_contents, |element| {
+                        element.child(Alert::error(
+                            "verify-network",
+                            strings::dest_editor_verify_network_warning(),
+                        ))
+                    }),
+            )
+    }
+
+    fn render_deletions(&self, cx: &mut Context<Self>) -> Field {
+        let confirming = self.confirm_large_deletions;
+
+        field()
+            .label(strings::dest_editor_delete_mode_label())
+            .child(
+                v_flex()
+                    .gap(px(10.))
+                    .child(
+                        ButtonGroup::new("delete-mode")
+                            .outline()
+                            .child(
+                                Button::new("delete-recycle")
+                                    .label(strings::enum_delete_mode_recycle())
+                                    .icon(Glyph::Recycle)
+                                    .selected(self.delete_mode == DeleteMode::Recycle),
+                            )
+                            .child(
+                                Button::new("delete-permanent")
+                                    .label(strings::enum_delete_mode_permanent())
+                                    .icon(Glyph::Trash)
+                                    .selected(self.delete_mode == DeleteMode::Permanent),
+                            )
+                            .on_click(cx.listener(|editor, clicked: &Vec<usize>, _, cx| {
+                                if let Some(index) = clicked.first() {
+                                    editor.delete_mode = if *index == 1 {
+                                        DeleteMode::Permanent
+                                    } else {
+                                        DeleteMode::Recycle
+                                    };
+                                    cx.notify();
+                                }
+                            })),
+                    )
+                    .child(
+                        Checkbox::new("confirm-large")
+                            .label(strings::dest_editor_confirm_large_deletions())
+                            .checked(confirming)
+                            .on_click(cx.listener(|editor, checked: &bool, _, cx| {
+                                editor.confirm_large_deletions = *checked;
+                                cx.notify();
+                            })),
+                    )
+                    .when(confirming, |element| {
+                        element.child(
+                            h_flex()
+                                .pl(px(24.))
+                                .items_center()
+                                .gap(px(8.))
+                                .child(strings::dest_editor_ask_when_deleting_more_than())
+                                .child(div().w(px(80.)).child(Input::new(&self.threshold)))
+                                .child(strings::dest_editor_percent_of_destination()),
+                        )
+                    }),
+            )
+    }
+}
+
+/// A label for a control nested under a form field's own label.
+fn sub_label(text: impl Into<SharedString>, cx: &App) -> impl IntoElement {
+    div()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(text.into())
 }

@@ -26,6 +26,9 @@ tracing.workspace = true
 
 gpui = "0.2.2"
 gpui-component = "0.5.1"
+# The icon set every `IconName` refers to. Version-matched with the component crate so the
+# names and the files cannot drift apart.
+gpui-component-assets = "0.5.1"
 raw-window-handle = "0.6.2"
 flume = "0.12.0"
 rust-embed = "8.12.0"

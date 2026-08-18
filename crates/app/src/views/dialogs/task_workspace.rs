@@ -6,17 +6,23 @@
 
 use std::sync::Arc;
 
-use gpui::{div, prelude::*, px, Context, Entity, EventEmitter, FontWeight, SharedString, Window};
+use gpui::{
+    div, prelude::*, px, AnyElement, App, Context, Entity, EventEmitter, FontWeight, SharedString,
+    Window,
+};
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::{
+    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    Size,
+};
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{Destination, SyncStrategy, SyncTask, SyncTaskKind};
 use uuid::Uuid;
 
-use crate::components::{
-    icon, Badge, BadgeTone, Button, ButtonTone, HintBox, HintTone, Icon, IconButton, IconButtonTone,
-};
+use crate::components::Glyph;
 use crate::state::{self, DestinationPreview, ExtensionChip, FilterModel, Scan, Summary};
-use crate::views::dialogs::{dialog_card, dialog_footer, dialog_title};
-use crate::{strings, theme};
+
+use crate::strings;
 
 /// What the workspace decided.
 pub enum TaskWorkspaceEvent {
@@ -520,27 +526,24 @@ fn files(count: usize) -> String {
 impl Render for TaskWorkspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let routing = self.is_routing();
-        // Never taller than the window it sits in: the rows scroll, the heading and the footer
-        // stay put, so Save is always reachable.
-        let available = window.viewport_size().height - px(64.);
+        // The rows scroll and everything else stays put, so Save — which the dialog draws below
+        // this — is always reachable however many destinations a task has.
+        let available = window.viewport_size().height - px(220.);
         let rows: Vec<_> = (0..self.rows.len())
             .map(|index| self.render_row(index, routing, cx))
             .collect();
 
-        dialog_card(px(760.))
-            .max_h(available.min(px(600.)))
-            .child(self.render_heading(routing))
+        v_flex()
+            .gap(px(16.))
+            .child(self.render_heading(routing, cx))
             .child(
-                div()
+                v_flex()
                     .id("workspace-rows")
-                    .flex()
-                    .flex_col()
                     .gap(px(10.))
-                    .flex_1()
-                    .min_h_0()
+                    .max_h(available.max(px(160.)).min(px(420.)))
                     .overflow_y_scroll()
                     .when(self.rows.is_empty(), |element| {
-                        element.child(div().text_color(theme::color(theme::TEXT_SECONDARY)).child(
+                        element.child(div().text_color(cx.theme().muted_foreground).child(
                             if routing {
                                 strings::workspace_routing_empty()
                             } else {
@@ -550,28 +553,57 @@ impl Render for TaskWorkspace {
                     })
                     .children(rows),
             )
+            .child(self.render_additions(routing, cx))
             .child(self.render_preview(cx))
             .when_some(self.save_blocked.clone(), |element, reason| {
-                element.child(HintBox::new(reason).tone(HintTone::Danger))
+                element.child(Alert::error("workspace-blocked", reason))
             })
-            .child(self.render_footer(routing, cx))
     }
 }
 
 impl TaskWorkspace {
-    fn render_heading(&self, routing: bool) -> impl IntoElement {
-        div()
-            .flex()
-            .flex_col()
+    /// The dialog's title and subtitle.
+    ///
+    /// `Dialog::title` takes one element, so the source path rides along underneath here rather
+    /// than being a separate thing the call site has to know about.
+    pub fn heading(routing: bool) -> SharedString {
+        if routing {
+            strings::workspace_rules_title().into()
+        } else {
+            strings::workspace_destinations_title().into()
+        }
+    }
+
+    /// The Cancel/Save pair the dialog draws in its footer.
+    pub fn footer(workspace: &Entity<Self>, _cx: &mut App) -> Vec<AnyElement> {
+        vec![
+            Button::new("workspace-cancel")
+                .label(strings::common_cancel())
+                .outline()
+                .on_click({
+                    let workspace = workspace.clone();
+                    move |_, _, cx| {
+                        workspace.update(cx, |_, cx| cx.emit(TaskWorkspaceEvent::Cancelled));
+                    }
+                })
+                .into_any_element(),
+            Button::new("workspace-save")
+                .label(strings::workspace_save())
+                .primary()
+                .on_click({
+                    let workspace = workspace.clone();
+                    move |_, _, cx| workspace.update(cx, |workspace, cx| workspace.save(cx))
+                })
+                .into_any_element(),
+        ]
+    }
+
+    fn render_heading(&self, routing: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
             .gap(px(3.))
-            .child(dialog_title(if routing {
-                strings::workspace_rules_title()
-            } else {
-                strings::workspace_destinations_title()
-            }))
             .child(
                 div()
-                    .text_color(theme::color(theme::TEXT_SECONDARY))
+                    .text_color(cx.theme().muted_foreground)
                     .child(if routing {
                         strings::workspace_routing_subtitle()
                     } else {
@@ -580,10 +612,9 @@ impl TaskWorkspace {
             )
             .child(
                 div()
-                    .pt(px(3.))
-                    .text_size(theme::text::small())
-                    .text_color(theme::color(theme::TEXT_MUTED))
-                    .font_family("Consolas")
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .font_family(cx.theme().mono_font_family.clone())
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
@@ -597,30 +628,22 @@ impl TaskWorkspace {
         let open = row.editor.is_some();
         let catch_all = row.is_catch_all();
 
-        div()
-            .flex()
-            .flex_col()
+        v_flex()
             .p(px(10.))
-            .rounded(theme::radius::block())
+            .rounded(cx.theme().radius)
             .border_1()
-            .border_color(theme::color(theme::HAIRLINE))
+            .border_color(cx.theme().border)
             .child(
-                div()
-                    .flex()
-                    .flex_row()
+                h_flex()
                     .items_center()
-                    .when(routing, |element| element.child(rule_number(index + 1)))
+                    .when(routing, |element| element.child(rule_number(index + 1, cx)))
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
+                        v_flex()
                             .flex_1()
                             .min_w_0()
                             .mx(px(10.))
                             .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
+                                h_flex()
                                     .items_center()
                                     .gap(px(8.))
                                     .child(
@@ -633,11 +656,11 @@ impl TaskWorkspace {
                                             .font_weight(FontWeight::MEDIUM)
                                             .child(row.summary()),
                                     )
-                                    .child(icon(
-                                        Icon::ArrowRight,
-                                        px(14.),
-                                        theme::color(theme::TEXT_MUTED),
-                                    ))
+                                    .child(
+                                        Icon::new(Glyph::ArrowRight)
+                                            .size(px(14.))
+                                            .text_color(cx.theme().muted_foreground),
+                                    )
                                     .child(
                                         div()
                                             .flex_shrink()
@@ -650,9 +673,9 @@ impl TaskWorkspace {
                             )
                             .child(
                                 div()
-                                    .text_size(theme::text::small())
-                                    .text_color(theme::color(theme::TEXT_MUTED))
-                                    .font_family("Consolas")
+                                    .text_sm()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .font_family(cx.theme().mono_font_family.clone())
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
@@ -664,9 +687,10 @@ impl TaskWorkspace {
             .when_some(row.shadowed_by.clone(), |element, warning| {
                 // Advisory only: saving is never blocked on it.
                 element.child(
-                    div()
-                        .pt(px(6.))
-                        .child(HintBox::new(warning).tone(HintTone::Warning)),
+                    div().pt(px(6.)).child(
+                        Alert::warning(SharedString::from(format!("shadowed-{id}")), warning)
+                            .with_size(Size::Small),
+                    ),
                 )
             })
             .when(open, |element| {
@@ -675,7 +699,7 @@ impl TaskWorkspace {
                         .mt(px(10.))
                         .pt(px(10.))
                         .border_t_1()
-                        .border_color(theme::color(theme::HAIRLINE))
+                        .border_color(cx.theme().border)
                         .child(self.render_extension_chips(id, cx))
                         .children(self.rows[index].editor.clone()),
                 )
@@ -695,9 +719,7 @@ impl TaskWorkspace {
         let preview = self.rows[index].preview.clone();
         let last = index + 1 == self.rows.len();
 
-        div()
-            .flex()
-            .flex_row()
+        h_flex()
             .items_center()
             .gap(px(5.))
             // What the last preview says this rule would take. A count alone does not tell you
@@ -705,14 +727,15 @@ impl TaskWorkspace {
             .children(preview.map(|preview| {
                 div()
                     .mr(px(5.))
-                    .child(Badge::new(files(preview.count)).tone(BadgeTone::Live))
+                    .child(Tag::primary().rounded_full().child(files(preview.count)))
             }))
             .when(routing, |element| {
                 element
                     .child(
-                        IconButton::new(SharedString::from(format!("up-{id}")), Icon::ArrowUp)
-                            .small()
-                            .glyph_size(px(14.))
+                        Button::new(SharedString::from(format!("up-{id}")))
+                            .icon(Glyph::MoveUp)
+                            .ghost()
+                            .xsmall()
                             .tooltip(strings::workspace_move_up_tip())
                             .disabled(index == 0 || catch_all)
                             .on_click(
@@ -720,9 +743,10 @@ impl TaskWorkspace {
                             ),
                     )
                     .child(
-                        IconButton::new(SharedString::from(format!("down-{id}")), Icon::ArrowDown)
-                            .small()
-                            .glyph_size(px(14.))
+                        Button::new(SharedString::from(format!("down-{id}")))
+                            .icon(Glyph::MoveDown)
+                            .ghost()
+                            .xsmall()
                             .tooltip(strings::workspace_move_down_tip())
                             .disabled(last || catch_all)
                             .on_click(
@@ -731,9 +755,10 @@ impl TaskWorkspace {
                     )
             })
             .child(
-                IconButton::new(SharedString::from(format!("copy-{id}")), Icon::ContentCopy)
-                    .small()
-                    .glyph_size(px(14.))
+                Button::new(SharedString::from(format!("copy-{id}")))
+                    .icon(Glyph::Copy)
+                    .ghost()
+                    .xsmall()
                     .tooltip(strings::workspace_duplicate_tip())
                     .on_click(cx.listener(move |workspace, _, window, cx| {
                         workspace.duplicate(id, window, cx)
@@ -744,9 +769,10 @@ impl TaskWorkspace {
             // nobody sees is a button nobody presses.
             .when(!open, |element| {
                 element.child(
-                    IconButton::new(SharedString::from(format!("edit-{id}")), Icon::Pencil)
-                        .small()
-                        .glyph_size(px(14.))
+                    Button::new(SharedString::from(format!("edit-{id}")))
+                        .icon(Glyph::Edit)
+                        .ghost()
+                        .xsmall()
                         .tooltip(strings::workspace_edit_tip())
                         .on_click(cx.listener(move |workspace, _, window, cx| {
                             workspace.expand(id, window, cx)
@@ -756,19 +782,20 @@ impl TaskWorkspace {
             .when(open, |element| {
                 element
                     .child(
-                        IconButton::new(SharedString::from(format!("done-{id}")), Icon::Check)
-                            .small()
-                            .glyph_size(px(15.))
-                            .tone(IconButtonTone::Run)
+                        Button::new(SharedString::from(format!("done-{id}")))
+                            .icon(Glyph::Check)
+                            .primary()
+                            .xsmall()
                             .tooltip(strings::workspace_done_tip())
                             .on_click(
                                 cx.listener(move |workspace, _, _, cx| workspace.accept(id, cx)),
                             ),
                     )
                     .child(
-                        IconButton::new(SharedString::from(format!("discard-{id}")), Icon::Close)
-                            .small()
-                            .glyph_size(px(14.))
+                        Button::new(SharedString::from(format!("discard-{id}")))
+                            .icon(Glyph::Close)
+                            .ghost()
+                            .xsmall()
                             .tooltip(strings::workspace_discard_tip())
                             .on_click(
                                 cx.listener(move |workspace, _, _, cx| workspace.discard(id, cx)),
@@ -776,14 +803,12 @@ impl TaskWorkspace {
                     )
             })
             .child(
-                IconButton::new(
-                    SharedString::from(format!("remove-{id}")),
-                    Icon::TrashCanOutline,
-                )
-                .small()
-                .glyph_size(px(14.))
-                .tooltip(strings::workspace_remove_tip())
-                .on_click(cx.listener(move |workspace, _, _, cx| workspace.delete(id, cx))),
+                Button::new(SharedString::from(format!("remove-{id}")))
+                    .icon(Glyph::Trash)
+                    .ghost()
+                    .xsmall()
+                    .tooltip(strings::workspace_remove_tip())
+                    .on_click(cx.listener(move |workspace, _, _, cx| workspace.delete(id, cx))),
             )
     }
 
@@ -795,23 +820,22 @@ impl TaskWorkspace {
             .iter()
             .map(|chip| {
                 let extension = chip.extension.clone();
-                Button::new(
-                    SharedString::from(format!("chip-{id}-{}", chip.extension)),
-                    chip.label(),
-                )
-                .tone(ButtonTone::Secondary)
-                .on_click(cx.listener(move |workspace, _, window, cx| {
-                    let Some(index) = workspace.index_of(id) else {
-                        return;
-                    };
-                    let Some(editor) = workspace.rows[index].editor.clone() else {
-                        return;
-                    };
-                    editor.update(cx, |editor, cx| {
-                        editor.add_extension(&extension, window, cx)
-                    });
-                    cx.notify();
-                }))
+                Button::new(SharedString::from(format!("chip-{id}-{}", chip.extension)))
+                    .label(chip.label())
+                    .outline()
+                    .xsmall()
+                    .on_click(cx.listener(move |workspace, _, window, cx| {
+                        let Some(index) = workspace.index_of(id) else {
+                            return;
+                        };
+                        let Some(editor) = workspace.rows[index].editor.clone() else {
+                            return;
+                        };
+                        editor.update(cx, |editor, cx| {
+                            editor.add_extension(&extension, window, cx)
+                        });
+                        cx.notify();
+                    }))
             })
             .collect();
 
@@ -826,23 +850,56 @@ impl TaskWorkspace {
         })
     }
 
+    /// Adding a rule, and the one-time catch-all.
+    ///
+    /// In the body rather than the dialog's footer: the footer is Cancel and Save, and mixing
+    /// "make another one" in beside "finish" is how a user ends up pressing the wrong one.
+    fn render_additions(&self, routing: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .gap(px(8.))
+            .child(
+                Button::new("add-rule")
+                    .label(if routing {
+                        strings::workspace_add_rule()
+                    } else {
+                        strings::workspace_add_destination()
+                    })
+                    .icon(Glyph::Add)
+                    .outline()
+                    .on_click(
+                        cx.listener(|workspace, _, window, cx| workspace.add_rule(window, cx)),
+                    ),
+            )
+            // Offered only while the task has no catch-all: it is added deliberately, and a
+            // second one could never match.
+            .when(self.can_add_catch_all(), |element| {
+                element.child(
+                    Button::new("add-catch-all")
+                        .label(strings::workspace_add_catch_all())
+                        .icon(Glyph::Inbox)
+                        .outline()
+                        .tooltip(strings::workspace_add_catch_all_tip())
+                        .on_click(cx.listener(|workspace, _, window, cx| {
+                            workspace.add_catch_all(window, cx)
+                        })),
+                )
+            })
+    }
+
     fn render_preview(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let contested: Vec<_> = self.contested.clone();
 
-        div()
-            .flex()
-            .flex_col()
+        v_flex()
             .gap(px(8.))
             .child(
-                div()
-                    .flex()
-                    .flex_row()
+                h_flex()
                     .items_center()
                     .gap(px(10.))
                     .child(
-                        Button::new("preview", strings::workspace_preview())
-                            .tone(ButtonTone::Secondary)
-                            .glyph(Icon::EyeOutline)
+                        Button::new("preview")
+                            .label(strings::workspace_preview())
+                            .icon(Glyph::Eye)
+                            .outline()
                             .tooltip(strings::workspace_preview_tip())
                             .disabled(self.scanning)
                             .on_click(cx.listener(|workspace, _, _, cx| workspace.rescan(cx))),
@@ -850,7 +907,7 @@ impl TaskWorkspace {
                     .when(self.scanning, |element| {
                         element.child(
                             div()
-                                .text_color(theme::color(theme::TEXT_SECONDARY))
+                                .text_color(cx.theme().muted_foreground)
                                 .child(strings::workspace_scanning_source()),
                         )
                     })
@@ -865,73 +922,31 @@ impl TaskWorkspace {
                     })),
             )
             .when_some(self.preview_unmatched.clone(), |element, unmatched| {
-                element.child(HintBox::new(unmatched).tone(HintTone::Warning))
+                element.child(Alert::warning("preview-unmatched", unmatched))
             })
             // Contested files are information, not a problem: the order resolved them, and this
             // is where the user sees which rule actually won.
             .when(!contested.is_empty(), |element| {
                 element.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .text_size(theme::text::small())
-                        .text_color(theme::color(theme::TEXT_SECONDARY))
+                    v_flex()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
                         .children(contested),
                 )
             })
     }
-
-    fn render_footer(&self, routing: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        dialog_footer()
-            .child(
-                Button::new(
-                    "add-rule",
-                    if routing {
-                        strings::workspace_add_rule()
-                    } else {
-                        strings::workspace_add_destination()
-                    },
-                )
-                .tone(ButtonTone::Secondary)
-                .glyph(Icon::Plus)
-                .on_click(cx.listener(|workspace, _, window, cx| workspace.add_rule(window, cx))),
-            )
-            // Offered only while the task has no catch-all: it is added deliberately, and a
-            // second one could never match.
-            .when(self.can_add_catch_all(), |element| {
-                element.child(
-                    Button::new("add-catch-all", strings::workspace_add_catch_all())
-                        .tone(ButtonTone::Secondary)
-                        .glyph(Icon::TrayArrowDown)
-                        .tooltip(strings::workspace_add_catch_all_tip())
-                        .on_click(cx.listener(|workspace, _, window, cx| {
-                            workspace.add_catch_all(window, cx)
-                        })),
-                )
-            })
-            .child(div().flex_1())
-            .child(
-                Button::new("workspace-cancel", strings::common_cancel())
-                    .tone(ButtonTone::Secondary)
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(TaskWorkspaceEvent::Cancelled))),
-            )
-            .child(
-                Button::new("workspace-save", strings::workspace_save())
-                    .on_click(cx.listener(|workspace, _, _, cx| workspace.save(cx))),
-            )
-    }
 }
 
 /// The rule's position, which for a Move task is the order it is matched in.
-fn rule_number(number: usize) -> impl IntoElement {
+fn rule_number(number: usize, cx: &App) -> impl IntoElement {
     div()
         .flex()
         .items_center()
         .justify_center()
         .size(px(22.))
-        .rounded(theme::radius::control())
-        .bg(theme::color(theme::SUBTLE))
-        .text_size(theme::text::small())
-        .text_color(theme::color(theme::TEXT_SECONDARY))
+        .rounded(cx.theme().radius)
+        .bg(cx.theme().muted)
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
         .child(number.to_string())
 }

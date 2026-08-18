@@ -20,7 +20,8 @@ Two differences are deliberate:
 - **Portable only.** Everything SyncMaid saves lives in a `Data` folder beside the executable,
   so the whole app is a folder you can copy to a USB stick and the machine keeps nothing. The
   C# build could also store its config in `%APPDATA%`; this one does not offer the choice.
-- **No acrylic window background.** The title bar and sidebar use a flat page colour instead.
+- **No acrylic window background.** SyncMaid wears `gpui-component`'s Ayu Light theme, flat
+  throughout, with the system title bar rather than a drawn one.
 
 Config is **byte-compatible** with the C# build, so the two can share a `Data` folder: point
 this one at an existing `tasks.json` and it loads, saves and reads back identically.

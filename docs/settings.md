@@ -1,6 +1,7 @@
 # Settings
 
-Open **Settings** with the gear in the title bar. Changes apply immediately unless noted.
+Open **Settings** from the bottom of the task sidebar. It takes over the window; the arrow at
+top left goes back to your tasks. Changes apply immediately unless noted.
 
 ## Language
 

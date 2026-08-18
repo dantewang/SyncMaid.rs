@@ -11,13 +11,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use gpui::{
-    px, size, App, AppContext as _, Application, Bounds, Entity, WindowBounds, WindowOptions,
+    px, size, App, AppContext as _, Application, Bounds, Entity, TitlebarOptions, WindowBounds,
+    WindowOptions,
 };
-use gpui_component::{Root, TitleBar};
+use gpui_component::Root;
 use syncmaid::platform::tray::{TrayCommand, TrayLabels};
 use syncmaid::state::Workspace;
 use syncmaid::views::MainView;
-use syncmaid::{assets, platform, services, strings};
+use syncmaid::{assets, platform, services, strings, theme};
 use syncmaid_core::io::{FileSystem, PhysicalFileSystem};
 use syncmaid_core::persistence::ConfigLocation;
 
@@ -61,6 +62,7 @@ fn main() {
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
+            theme::install(cx);
 
             let workspace = Workspace::load(Arc::clone(&file_system), &config);
             // Before the first window is drawn: switching afterwards works, but the user would
@@ -76,7 +78,12 @@ fn main() {
 
             if let Some(dialog) = show.clone() {
                 let _ = window.update(cx, |_, window, cx| {
-                    view.update(cx, |view, cx| view.show_dialog(&dialog, window, cx));
+                    // Deferred, because opening a dialog goes through `Root` and `Root` is
+                    // exactly what this closure is already holding. One tick later it is free.
+                    let view = view.clone();
+                    window.defer(cx, move |window, cx| {
+                        view.update(cx, |view, cx| view.show_dialog(&dialog, window, cx));
+                    });
                 });
             }
 
@@ -110,7 +117,15 @@ fn open_main_window(
     let handle = cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitleBar::title_bar_options()),
+            // The real Windows caption bar. Drawing our own cost the system menu, and would
+            // now also cost the snap-layout flyout the OS attaches to its own maximize button.
+            titlebar: Some(TitlebarOptions {
+                // The product name, not a localized string: it is the same word in every
+                // language the app speaks.
+                title: Some("SyncMaid".into()),
+                appears_transparent: false,
+                traffic_light_position: None,
+            }),
             window_min_size: Some(size(px(WINDOW_MIN_SIZE.0), px(WINDOW_MIN_SIZE.1))),
             app_id: Some("SyncMaid".into()),
             // Never shown rather than shown and hidden: no flash, no taskbar entry. The window

@@ -89,7 +89,29 @@ fn substitute(template: &str, arguments: &[&dyn Display]) -> String {
 /// every window — nothing is cached, so a redraw is all a switch takes.
 pub fn set_language(tag: Option<&str>) -> bool {
     let chosen = choose(tag);
+    // The component library carries UI strings of its own — the settings search box, the
+    // dialog buttons — behind its own catalogue, keyed by its own tags. Left unset they stay
+    // English while the rest of the window changes language.
+    gpui_component::set_locale(component_locale(chosen));
     ACTIVE.swap(chosen, Ordering::Relaxed) != chosen
+}
+
+/// Our language index, in the tags `gpui-component`'s catalogue uses.
+///
+/// Its file is keyed `zh-CN` / `zh-HK` rather than by script, so the two Chinese tables have to
+/// be translated across.
+///
+/// **Japanese has no entry there, and cannot be given one yet.** The library documents
+/// `rust_i18n::extend!` for exactly this, but 0.5.1 pins rust-i18n 3.1.5, which does not
+/// generate the hook that macro calls — so the handful of strings the library owns (the settings
+/// search field, the dialog buttons, a text input's context menu) fall back to English on
+/// Japanese. Revisit when the library moves to rust-i18n 4.
+fn component_locale(index: usize) -> &'static str {
+    match LANGUAGES[index].tag {
+        "zh-Hans" => "zh-CN",
+        "zh-Hant" => "zh-HK",
+        tag => tag,
+    }
 }
 
 /// The index of the best table for `tag`, or for the system when it is `None`.

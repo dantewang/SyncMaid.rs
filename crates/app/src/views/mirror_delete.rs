@@ -13,15 +13,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gpui::{
-    div, prelude::*, px, size, App, Bounds, Context, TitlebarOptions, Window, WindowBounds,
-    WindowKind, WindowOptions,
+    div, prelude::*, px, size, App, Bounds, Context, FontWeight, TitlebarOptions, Window,
+    WindowBounds, WindowKind, WindowOptions,
 };
+use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::{ActiveTheme as _, Icon, Root};
 use syncmaid_core::model::{DeleteMode, Destination};
 use syncmaid_core::sync::MirrorDeletePreview;
 
-use crate::components::{icon, Button, ButtonTone, Icon};
-use crate::views::dialogs::dialog_title;
-use crate::{strings, theme};
+use crate::components::Glyph;
+use crate::strings;
 
 /// The window's own size. Fixed rather than sized to content: the sample list scrolls, so the
 /// window is the same shape whether three files are going or three thousand.
@@ -101,6 +102,7 @@ impl ConfirmMirrorDelete {
 impl Render for ConfirmMirrorDelete {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let hidden = self.count.saturating_sub(self.sample.len());
+        let mono = cx.theme().mono_font_family.clone();
 
         div()
             .flex()
@@ -108,32 +110,36 @@ impl Render for ConfirmMirrorDelete {
             .size_full()
             .gap(px(14.))
             .p(px(24.))
-            .bg(theme::color(theme::SURFACE))
-            .text_size(theme::text::body())
-            .text_color(theme::color(theme::TEXT_PRIMARY))
+            .bg(cx.theme().background)
+            .text_color(cx.theme().foreground)
             .child(
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap(px(10.))
-                    .child(icon(
-                        Icon::AlertOutline,
-                        px(22.),
-                        theme::color(theme::WARNING),
-                    ))
-                    .child(dialog_title(strings::mirror_delete_review_deletions())),
+                    .child(
+                        Icon::new(Glyph::Warning)
+                            .size(px(22.))
+                            .text_color(cx.theme().warning),
+                    )
+                    .child(
+                        div()
+                            .text_lg()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(strings::mirror_delete_review_deletions()),
+                    ),
             )
             .child(
                 div()
-                    .text_color(theme::color(theme::TEXT_SECONDARY))
+                    .text_color(cx.theme().muted_foreground)
                     .child(self.explanation()),
             )
             .child(
                 div()
-                    .text_size(theme::text::small())
-                    .text_color(theme::color(theme::TEXT_MUTED))
-                    .font_family("Consolas")
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .font_family(mono.clone())
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .text_ellipsis()
@@ -148,11 +154,11 @@ impl Render for ConfirmMirrorDelete {
                     .min_h_0()
                     .overflow_y_scroll()
                     .p(px(10.))
-                    .rounded(theme::radius::control())
-                    .bg(theme::color(theme::SUBTLE))
-                    .text_size(theme::text::small())
-                    .text_color(theme::color(theme::TEXT_MUTED))
-                    .font_family("Consolas")
+                    .rounded(cx.theme().radius)
+                    .bg(cx.theme().muted)
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .font_family(mono)
                     // Deliberately not trimmed: inside this scrolling column `text_ellipsis`
                     // collapses the line to a few stray pixels (measured, with and without an
                     // explicit width). A long path wrapping onto a second line reads fine —
@@ -166,7 +172,7 @@ impl Render for ConfirmMirrorDelete {
             .when(hidden > 0, |element| {
                 element.child(
                     div()
-                        .text_color(theme::color(theme::TEXT_SECONDARY))
+                        .text_color(cx.theme().muted_foreground)
                         .child(strings::mirror_delete_more_format(hidden)),
                 )
             })
@@ -178,15 +184,17 @@ impl Render for ConfirmMirrorDelete {
                     .items_center()
                     .gap(px(10.))
                     .child(
-                        Button::new("mirror-delete-keep", strings::mirror_delete_keep_them())
-                            .tone(ButtonTone::Secondary)
+                        Button::new("mirror-delete-keep")
+                            .label(strings::mirror_delete_keep_them())
+                            .outline()
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.decide(MirrorDeleteDecision::Keep, window, cx)
                             })),
                     )
                     .child(
-                        Button::new("mirror-delete-confirm", self.confirm_label())
-                            .tone(ButtonTone::Danger)
+                        Button::new("mirror-delete-confirm")
+                            .label(self.confirm_label())
+                            .danger()
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.decide(MirrorDeleteDecision::Delete, window, cx)
                             })),
@@ -214,8 +222,8 @@ pub fn ask(
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                // The system title bar, unlike the main window's app-drawn one: this window has
-                // to look like what it is, an alert the OS put in front of you.
+                // Titled, so the taskbar entry and the Alt-Tab thumbnail say what this window
+                // is. It can arrive with nothing else of SyncMaid's on screen.
                 titlebar: Some(TitlebarOptions {
                     title: Some(strings::mirror_delete_window_title().into()),
                     appears_transparent: false,
@@ -228,7 +236,14 @@ pub fn ask(
                 kind: WindowKind::Normal,
                 ..Default::default()
             },
-            move |_, cx| cx.new(|_| ConfirmMirrorDelete::new(&destination, preview, answer)),
+            // Wrapped in `Root` like the main window: the library's components expect its
+            // layers to exist, and a bare view here would be a second, subtly different
+            // rendering environment.
+            move |window, cx| {
+                let view = cx.new(|_| ConfirmMirrorDelete::new(&destination, preview, answer));
+                let any: gpui::AnyView = view.into();
+                cx.new(|cx| Root::new(any, window, cx))
+            },
         )
     };
 

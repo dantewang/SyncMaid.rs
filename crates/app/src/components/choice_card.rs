@@ -1,21 +1,31 @@
 //! A radio option big enough to explain itself.
 //!
-//! Used where the choice is consequential and the names alone are not enough — Sync versus
-//! Move, Mirror versus Add-only. Each card carries a sentence saying what it will do to the
-//! user's files, because that is the decision being made.
+//! Used where the choice is consequential and the names alone are not enough — Sync versus Move,
+//! Mirror versus Add-only. Each card carries a sentence saying what it will do to the user's
+//! files, because that is the decision being made.
+//!
+//! Deliberately not a `gpui_component::radio::RadioGroup`: `Radio::label` is one line, and
+//! folding "Mirror deletes anything the source does not have" into a label or hiding it in a
+//! tooltip trades away the sentence that stops the mistake. Everything about its *appearance*
+//! comes from the theme, so it follows the palette like the built-in components do — the only
+//! thing bespoke here is the shape.
 
 use gpui::{
-    div, prelude::*, px, App, ElementId, FontWeight, IntoElement, RenderOnce, SharedString, Window,
+    div, prelude::*, px, App, ClickEvent, ElementId, FontWeight, IntoElement, RenderOnce,
+    SharedString, Window,
 };
+use gpui_component::{ActiveTheme as _, Icon};
 
-use crate::components::{icon, ClickHandler, Icon};
-use crate::theme;
+use crate::components::Glyph;
+
+/// What a card stores for its click. Named because the bare type is unreadable.
+type ClickHandler = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 /// See the module docs.
 #[derive(IntoElement)]
 pub struct ChoiceCard {
     id: ElementId,
-    glyph: Icon,
+    glyph: Glyph,
     title: SharedString,
     description: SharedString,
     selected: bool,
@@ -26,7 +36,7 @@ pub struct ChoiceCard {
 impl ChoiceCard {
     pub fn new(
         id: impl Into<ElementId>,
-        glyph: Icon,
+        glyph: Glyph,
         title: impl Into<SharedString>,
         description: impl Into<SharedString>,
     ) -> Self {
@@ -55,7 +65,7 @@ impl ChoiceCard {
 
     pub fn on_click(
         mut self,
-        handler: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+        handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_click = Some(Box::new(handler));
         self
@@ -63,11 +73,11 @@ impl ChoiceCard {
 }
 
 impl RenderOnce for ChoiceCard {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let (background, border) = if self.selected {
-            (theme::TEAL_SUBTLE, theme::TEAL)
+            (cx.theme().list_active, cx.theme().primary)
         } else {
-            (theme::SURFACE, theme::HAIRLINE_STRONG)
+            (cx.theme().background, cx.theme().border)
         };
 
         let mut element = div()
@@ -77,14 +87,16 @@ impl RenderOnce for ChoiceCard {
             .items_start()
             .px(px(12.))
             .py(px(10.))
-            .rounded(theme::radius::block())
+            .rounded(cx.theme().radius)
             .border_1()
-            .border_color(theme::color(border))
-            .bg(theme::color(background))
+            .border_color(border)
+            .bg(background)
             .child(
-                div()
-                    .mr(px(11.))
-                    .child(icon(self.glyph, px(20.), theme::color(theme::TEAL))),
+                div().mr(px(11.)).child(
+                    Icon::new(self.glyph)
+                        .size(px(20.))
+                        .text_color(cx.theme().primary),
+                ),
             )
             .child(
                 div()
@@ -96,8 +108,8 @@ impl RenderOnce for ChoiceCard {
                     .child(div().font_weight(FontWeight::SEMIBOLD).child(self.title))
                     .child(
                         div()
-                            .text_size(theme::text::small())
-                            .text_color(theme::color(theme::TEXT_SECONDARY))
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
                             .child(self.description),
                     ),
             );

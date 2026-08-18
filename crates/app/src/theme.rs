@@ -46,15 +46,11 @@ pub fn install(cx: &mut App) {
     Theme::change(ThemeMode::Light, None, cx);
 }
 
-/// Type sizes, in the two places the theme's own scale is not what the layout wants.
+/// The one type size the theme's own scale does not cover.
 pub mod text {
     use super::*;
 
-    /// Badge and path text.
-    pub fn small() -> Pixels {
-        px(12.)
-    }
-    /// The page heading.
+    /// The page heading. Larger than `text_lg`, which is what a card title uses.
     pub fn heading() -> Pixels {
         px(18.)
     }

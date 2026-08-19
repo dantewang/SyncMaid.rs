@@ -7,10 +7,11 @@ use std::time::Duration;
 use chrono::{DateTime, FixedOffset, Local};
 
 use gpui::{
-    div, prelude::*, px, App, Context, Entity, FontWeight, Hsla, ScrollHandle, SharedString,
-    Subscription, Window,
+    div, prelude::*, px, App, Context, Entity, FontWeight, Hsla, Pixels, ScrollHandle,
+    SharedString, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::sheet::Sheet;
 use gpui_component::sidebar::{
     Sidebar, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarToggleButton,
 };
@@ -41,6 +42,56 @@ use crate::views::{SettingsEvent, SettingsView};
 /// is never wrong by much, rare enough to cost nothing while the window sits idle.
 const NEXT_RUN_REFRESH: Duration = Duration::from_secs(30);
 
+/// The shape both editors arrive in: a sheet from the right, full window height.
+///
+/// A sheet rather than a centred dialog because both are tall, list-shaped editing surfaces that
+/// want the height, and because it keeps the task list visible beside them.
+///
+/// `overlay_closable` is off on purpose. It defaults on, and an editor holding unsaved changes
+/// that a stray click outside throws away is not a trade worth taking: Esc and the ✕ are both
+/// still there, and both are deliberate.
+///
+/// The wrapper around `body` is doing work the sheet does not do for itself. Its body is
+/// `flex_1` over an `overflow: scroll` on **both** axes, with no width and no `min-height: 0` —
+/// so unclamped content both widens the sheet (carrying a row's buttons off the right edge) and
+/// lengthens it (pushing the footer, and therefore Save, off the bottom). A dialog wraps its
+/// content in `w_full().overflow_hidden()` under a bounded height; this is the same wrapper,
+/// with real numbers so `text_ellipsis` has something definite to trim against.
+fn editor_sheet(
+    sheet: Sheet,
+    window: &mut Window,
+    preferred: Pixels,
+    body: impl IntoElement,
+) -> Sheet {
+    let viewport = window.viewport_size();
+    // Never wider than the window it slides into — the window's minimum is 640, and a sheet
+    // asking for 760 there would run off the left edge.
+    let width = px(f32::from(preferred).min(f32::from(viewport.width) - 48.));
+
+    sheet
+        .size(width)
+        .overlay_closable(false)
+        // Zero, not the default: that default leaves room for the library's own drawn title
+        // bar, and ours is the system's — the client area already starts below it.
+        .margin_top(px(0.))
+        .child(
+            div()
+                .id("sheet-body")
+                .w(width - SHEET_PADDING * 2.)
+                .max_h(viewport.height - SHEET_CHROME)
+                .overflow_hidden()
+                .overflow_y_scroll()
+                .child(body),
+        )
+}
+
+/// The horizontal padding a `Sheet` puts on its body.
+const SHEET_PADDING: Pixels = px(16.);
+
+/// Roughly what a `Sheet`'s own title row and footer row occupy, with a little slack. Only the
+/// slack matters: too small wastes a few pixels, too large would hide the footer again.
+const SHEET_CHROME: Pixels = px(112.);
+
 /// Which of the two things the window body is showing.
 ///
 /// Deliberately not persisted. Settings is somewhere you go and come back from, not a mode the
@@ -60,8 +111,8 @@ pub struct MainView {
     /// Live progress text per destination, replaced by the row's status when the run ends.
     progress: HashMap<Uuid, String>,
     route: Route,
-    /// Dropped when the dialog closes, which is what unsubscribes it.
-    dialog_subscription: Option<Subscription>,
+    /// Dropped when the editor sheet closes, which is what unsubscribes it.
+    editor_subscription: Option<Subscription>,
     /// So picking a task in the sidebar can bring its card into view.
     task_list: ScrollHandle,
 
@@ -89,7 +140,7 @@ impl MainView {
             gates: HashMap::new(),
             progress: HashMap::new(),
             route: Route::Tasks,
-            dialog_subscription: None,
+            editor_subscription: None,
             task_list: ScrollHandle::new(),
             triggers,
             trigger_errors: HashMap::new(),
@@ -293,7 +344,7 @@ impl MainView {
             None => TaskEditor::new_task(tasks, file_system, window, cx),
         });
 
-        self.dialog_subscription = Some(cx.subscribe_in(
+        self.editor_subscription = Some(cx.subscribe_in(
             &editor,
             window,
             |view, _, event: &TaskEditorEvent, window, cx| {
@@ -302,30 +353,22 @@ impl MainView {
                     // The trigger or the source may have changed under it.
                     view.sync_triggers(cx);
                 }
-                view.dismiss_dialog(window, cx);
+                view.dismiss_editor(window, cx);
             },
         ));
 
         // The builder runs once a frame, so it may only clone and read — never act.
         let editor = editor.clone();
-        window.open_dialog(cx, move |dialog, window, _| {
-            dialog
-                .w(px(470.))
-                // The dialog draws its own card but not its own limit: without this a tall
-                // editor grows past the window and takes Save with it.
-                .max_h(window.viewport_size().height - px(80.))
+        window.open_sheet(cx, move |sheet, window, cx| {
+            editor_sheet(sheet, window, px(470.), editor.clone())
                 .title(strings::task_editor_title())
-                .close_button(false)
-                .footer({
-                    let editor = editor.clone();
-                    move |_, _, _, cx| TaskEditor::footer(&editor, cx)
-                })
-                .child(editor.clone())
-                .on_cancel({
+                .footer(TaskEditor::footer(&editor, cx))
+                // Esc, the ✕ and — were it enabled — the overlay all arrive here. Save closes
+                // the sheet itself and never reaches this, so this is only ever "gave up".
+                .on_close({
                     let editor = editor.clone();
                     move |_, _, cx| {
                         editor.update(cx, |_, cx| cx.emit(TaskEditorEvent::Cancelled));
-                        true
                     }
                 })
         });
@@ -364,44 +407,36 @@ impl MainView {
             )
         });
 
-        self.dialog_subscription = Some(cx.subscribe_in(
+        self.editor_subscription = Some(cx.subscribe_in(
             &editor,
             window,
             move |view, _, event: &TaskWorkspaceEvent, window, cx| {
                 if let TaskWorkspaceEvent::Saved(destinations) = event {
                     view.save_destinations(task_id, destinations.clone());
                 }
-                view.dismiss_dialog(window, cx);
+                view.dismiss_editor(window, cx);
             },
         ));
 
         let editor = editor.clone();
-        window.open_dialog(cx, move |dialog, window, _| {
-            dialog
-                .w(px(760.))
-                .max_h(window.viewport_size().height - px(80.))
+        window.open_sheet(cx, move |sheet, window, _| {
+            editor_sheet(sheet, window, px(760.), editor.clone())
                 .title(TaskWorkspace::heading(routing))
-                .close_button(false)
-                .footer({
-                    let editor = editor.clone();
-                    move |_, _, _, cx| TaskWorkspace::footer(&editor, cx)
-                })
-                .child(editor.clone())
-                .on_cancel({
+                .footer(TaskWorkspace::footer(&editor))
+                .on_close({
                     let editor = editor.clone();
                     move |_, _, cx| {
                         editor.update(cx, |_, cx| cx.emit(TaskWorkspaceEvent::Cancelled));
-                        true
                     }
                 })
         });
         cx.notify();
     }
 
-    /// Closes whatever dialog is open and forgets its subscription.
-    fn dismiss_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.dialog_subscription = None;
-        window.close_all_dialogs(cx);
+    /// Closes whichever editor sheet is open and forgets its subscription.
+    fn dismiss_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor_subscription = None;
+        window.close_sheet(cx);
         cx.notify();
     }
 
@@ -426,7 +461,7 @@ impl MainView {
         let directory = self.workspace.data_directory().to_path_buf();
         let view = cx.new(|_| SettingsView::new(settings, directory));
 
-        self.dialog_subscription = Some(cx.subscribe(
+        self.editor_subscription = Some(cx.subscribe(
             &view,
             |view, _, event: &SettingsEvent, cx| match event {
                 // Applied the moment the switch is flipped; there is no save step.
@@ -438,7 +473,7 @@ impl MainView {
                 }
                 SettingsEvent::Closed => {
                     view.route = Route::Tasks;
-                    view.dialog_subscription = None;
+                    view.editor_subscription = None;
                     cx.notify();
                 }
             },
@@ -702,9 +737,10 @@ impl Render for MainView {
                 // and a scrim over a task list you cannot touch says less than replacing it.
                 Route::Settings(view) => view.clone().into_any_element(),
             })
-            // `Root` owns the dialog stack but does not draw it — the application's own root
-            // view has to, which is what puts the modals above everything here rather than
-            // behind it. Leave this out and `open_dialog` succeeds silently and shows nothing.
+            // `Root` owns the sheet and dialog stacks but draws neither — the application's own
+            // root view has to, which is what puts them above everything here rather than behind
+            // it. Leave these out and `open_sheet` / `open_dialog` succeed and show nothing.
+            .children(Root::render_sheet_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))
             .children(Root::render_notification_layer(window, cx))
     }

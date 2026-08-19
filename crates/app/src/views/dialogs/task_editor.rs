@@ -4,8 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, App, Context, Entity, EventEmitter, FontWeight,
-    PathPromptOptions, Window,
+    div, prelude::*, px, App, Context, Entity, EventEmitter, FontWeight, PathPromptOptions, Window,
 };
 use gpui_component::button::{Button, ButtonGroup, ButtonVariants as _};
 use gpui_component::form::{field, v_form, Field};
@@ -353,33 +352,39 @@ impl Render for TaskEditor {
 }
 
 impl TaskEditor {
-    /// The footer the dialog wraps this editor in.
+    /// The footer the sheet wraps this editor in.
     ///
     /// Lives here rather than at the call site because whether Save is available is a property of
-    /// the editor's contents, and `can_save` is the only thing that knows.
-    pub fn footer(editor: &Entity<Self>, cx: &mut App) -> Vec<AnyElement> {
+    /// the editor's contents, and `can_save` is the only thing that knows. The sheet's builder is
+    /// a per-frame `Fn`, so this is re-evaluated as the user types.
+    pub fn footer(editor: &Entity<Self>, cx: &mut App) -> impl IntoElement {
         let can_save = editor.read(cx).can_save(cx);
-        vec![
-            Button::new("task-cancel")
-                .label(strings::common_cancel())
-                .outline()
-                .on_click({
-                    let editor = editor.clone();
-                    move |_, _, cx| {
-                        editor.update(cx, |_, cx| cx.emit(TaskEditorEvent::Cancelled));
-                    }
-                })
-                .into_any_element(),
-            Button::new("task-save")
-                .label(strings::task_editor_save())
-                .primary()
-                .disabled(!can_save)
-                .on_click({
-                    let editor = editor.clone();
-                    move |_, _, cx| editor.update(cx, |editor, cx| editor.save(cx))
-                })
-                .into_any_element(),
-        ]
+
+        h_flex()
+            .w_full()
+            .justify_end()
+            .gap(px(8.))
+            .child(
+                Button::new("task-cancel")
+                    .label(strings::common_cancel())
+                    .outline()
+                    .on_click({
+                        let editor = editor.clone();
+                        move |_, _, cx| {
+                            editor.update(cx, |_, cx| cx.emit(TaskEditorEvent::Cancelled));
+                        }
+                    }),
+            )
+            .child(
+                Button::new("task-save")
+                    .label(strings::task_editor_save())
+                    .primary()
+                    .disabled(!can_save)
+                    .on_click({
+                        let editor = editor.clone();
+                        move |_, _, cx| editor.update(cx, |editor, cx| editor.save(cx))
+                    }),
+            )
     }
 
     fn render_kind(&self, cx: &mut Context<Self>) -> Field {

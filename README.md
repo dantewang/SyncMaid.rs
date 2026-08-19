@@ -52,9 +52,9 @@ A release build:
 cargo build --release
 ```
 
-`SyncMaid.exe --show <dialog>` opens straight into one modal — `task`, `task-edit`,
-`workspace`, `routing`, `destination`, `destination-edit`, `settings`, `confirm` or
-`mirror-delete`. A development affordance: several of them sit three clicks deep.
+`SyncMaid.exe --show <dialog>` opens straight into one editor or confirmation — `task`,
+`task-edit`, `workspace`, `routing`, `destination`, `destination-edit`, `settings`, `confirm`
+or `mirror-delete`. A development affordance: several of them sit three clicks deep.
 
 ## Tests
 

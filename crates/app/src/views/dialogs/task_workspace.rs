@@ -7,8 +7,7 @@
 use std::sync::Arc;
 
 use gpui::{
-    div, prelude::*, px, AnyElement, App, Context, Entity, EventEmitter, FontWeight, SharedString,
-    Window,
+    div, prelude::*, px, App, Context, Entity, EventEmitter, FontWeight, SharedString, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::{
@@ -524,24 +523,23 @@ fn files(count: usize) -> String {
 }
 
 impl Render for TaskWorkspace {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let routing = self.is_routing();
-        // The rows scroll and everything else stays put, so Save — which the dialog draws below
-        // this — is always reachable however many destinations a task has.
-        let available = window.viewport_size().height - px(220.);
         let rows: Vec<_> = (0..self.rows.len())
             .map(|index| self.render_row(index, routing, cx))
             .collect();
 
+        // One flowing column, no height of its own. The sheet is full window height and scrolls
+        // its own body, and Save sits in the sheet's footer below — so a second scroll region
+        // for the rows would only be a smaller box inside a big one.
         v_flex()
+            .w_full()
+            .min_w_0()
             .gap(px(16.))
             .child(self.render_heading(routing, cx))
             .child(
                 v_flex()
-                    .id("workspace-rows")
                     .gap(px(10.))
-                    .max_h(available.max(px(160.)).min(px(420.)))
-                    .overflow_y_scroll()
                     .when(self.rows.is_empty(), |element| {
                         element.child(div().text_color(cx.theme().muted_foreground).child(
                             if routing {
@@ -562,10 +560,8 @@ impl Render for TaskWorkspace {
 }
 
 impl TaskWorkspace {
-    /// The dialog's title and subtitle.
-    ///
-    /// `Dialog::title` takes one element, so the source path rides along underneath here rather
-    /// than being a separate thing the call site has to know about.
+    /// What the sheet puts in its title bar. The subtitle and the source path ride along in the
+    /// body, where there is room for them.
     pub fn heading(routing: bool) -> SharedString {
         if routing {
             strings::workspace_rules_title().into()
@@ -574,28 +570,32 @@ impl TaskWorkspace {
         }
     }
 
-    /// The Cancel/Save pair the dialog draws in its footer.
-    pub fn footer(workspace: &Entity<Self>, _cx: &mut App) -> Vec<AnyElement> {
-        vec![
-            Button::new("workspace-cancel")
-                .label(strings::common_cancel())
-                .outline()
-                .on_click({
-                    let workspace = workspace.clone();
-                    move |_, _, cx| {
-                        workspace.update(cx, |_, cx| cx.emit(TaskWorkspaceEvent::Cancelled));
-                    }
-                })
-                .into_any_element(),
-            Button::new("workspace-save")
-                .label(strings::workspace_save())
-                .primary()
-                .on_click({
-                    let workspace = workspace.clone();
-                    move |_, _, cx| workspace.update(cx, |workspace, cx| workspace.save(cx))
-                })
-                .into_any_element(),
-        ]
+    /// The Cancel/Save pair the sheet draws in its footer.
+    pub fn footer(workspace: &Entity<Self>) -> impl IntoElement {
+        h_flex()
+            .w_full()
+            .justify_end()
+            .gap(px(8.))
+            .child(
+                Button::new("workspace-cancel")
+                    .label(strings::common_cancel())
+                    .outline()
+                    .on_click({
+                        let workspace = workspace.clone();
+                        move |_, _, cx| {
+                            workspace.update(cx, |_, cx| cx.emit(TaskWorkspaceEvent::Cancelled));
+                        }
+                    }),
+            )
+            .child(
+                Button::new("workspace-save")
+                    .label(strings::workspace_save())
+                    .primary()
+                    .on_click({
+                        let workspace = workspace.clone();
+                        move |_, _, cx| workspace.update(cx, |workspace, cx| workspace.save(cx))
+                    }),
+            )
     }
 
     fn render_heading(&self, routing: bool, cx: &mut Context<Self>) -> impl IntoElement {
@@ -612,6 +612,8 @@ impl TaskWorkspace {
             )
             .child(
                 div()
+                    .w_full()
+                    .min_w_0()
                     .text_sm()
                     .text_color(cx.theme().muted_foreground)
                     .font_family(cx.theme().mono_font_family.clone())
@@ -629,6 +631,8 @@ impl TaskWorkspace {
         let catch_all = row.is_catch_all();
 
         v_flex()
+            .w_full()
+            .min_w_0()
             .p(px(10.))
             .rounded(cx.theme().radius)
             .border_1()

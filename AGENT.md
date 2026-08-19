@@ -21,15 +21,19 @@ engineer around them.
 
 ## UI implementation
 
-- **Pick the right dialog host.** `Window::open_dialog` — `gpui-component`'s dialog layer — is for
-  flows the user starts from the visible main window (editors, delete confirms). Anything that
-  can appear while the app is hidden in the tray — the mirror-delete confirmation — must be an
-  independent top-level window, or nobody sees it.
-- **`Root` holds the dialog stack; it does not draw it.** The application's own root view has to
-  render `Root::render_dialog_layer` and `render_notification_layer` as children, or
-  `open_dialog` succeeds and shows nothing.
-- **Do not open a dialog from inside `WindowHandle::update`.** That closure already holds `Root`
-  borrowed, and `open_dialog` wants it too. `Window::defer` moves the call one tick later.
+- **Pick the right host.** `Window::open_sheet` — a right-hand sheet — is for the two editing
+  surfaces, which are tall and list-shaped and want the height. `Window::open_dialog` is for the
+  yes/no confirmations. Anything that can appear while the app is hidden in the tray — the
+  mirror-delete confirmation — must be an independent top-level window, or nobody sees it.
+- **A `Sheet` does not clamp its own body.** It is `flex_1` over `overflow: scroll` on both axes,
+  with no width and no `min-height: 0`, so unclamped content widens the sheet (carrying a row's
+  buttons off the right edge) and lengthens it (pushing the footer, and Save, off the bottom). A
+  dialog wraps content for you; a sheet does not. `editor_sheet` is that wrapper.
+- **`Root` holds the sheet and dialog stacks; it draws neither.** The application's own root view
+  has to render `Root::render_sheet_layer` and `render_dialog_layer`, or `open_sheet` and
+  `open_dialog` succeed and show nothing.
+- **Do not open a sheet or dialog from inside `WindowHandle::update`.** That closure already
+  holds `Root` borrowed, and opening wants it too. `Window::defer` moves the call one tick later.
 - **The title bar is the system's.** `TitlebarOptions { appears_transparent: false, .. }`, so
   dragging, the system menu, double-click to maximize and Windows 11's snap-layout flyout are
   the OS's to provide rather than ours to re-implement.

@@ -373,6 +373,8 @@ impl Render for DestinationEditor {
         // No card, no title, no footer: the workspace row it opens inside is the frame, and its
         // accept/discard pair sits up beside the summary line rather than below the fold.
         v_flex()
+            .w_full()
+            .min_w_0()
             .gap(px(16.))
             .child(self.render_fields(cx))
             .when_some(self.blocked_reason(cx), |element, reason| {

@@ -7,16 +7,16 @@ use std::time::Duration;
 use chrono::{DateTime, FixedOffset, Local};
 
 use gpui::{
-    div, prelude::*, px, App, Context, Entity, FontWeight, Hsla, Pixels, ScrollHandle,
-    SharedString, Subscription, Window,
+    div, prelude::*, px, App, Context, Div, Entity, FontWeight, Hsla, Pixels, ScrollHandle,
+    SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::sheet::Sheet;
 use gpui_component::sidebar::{Sidebar, SidebarMenu, SidebarMenuItem};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{
-    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Collapsible as _, Disableable as _,
-    Icon, Root, Sizable as _, WindowExt as _,
+    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Root,
+    Sizable as _, WindowExt as _,
 };
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{
@@ -766,26 +766,18 @@ impl MainView {
 
     /// Tasks, the tasks themselves, and the way into settings.
     ///
-    /// **Every row here is a `SidebarMenuItem`, and that is the whole design.** Tasks and Settings
-    /// are the same widget as the tasks between them, so they cannot drift: one icon size, one
-    /// hover shape, one alignment, and the library centres all of them when the rail narrows.
+    /// Two levels: Tasks and Settings are sections, and the tasks are the list under one of them.
+    /// The sections are drawn by [`section_row`] and the tasks by `SidebarMenuItem`, which is what
+    /// gives them different weight — a menu item's row is hard-coded `text_sm`, so a section built
+    /// from one could never be anything but the same size as its own contents.
     ///
-    /// The alternative — `SidebarHeader` and `SidebarFooter` — is what this replaced, and each of
-    /// its parts went wrong differently. Both are `h_flex().p_2().w_full().justify_between()` with
-    /// hover styling of their own, so a `Button` inside one drew a second, differently sized
-    /// highlight over the first; `justify_between` left a lone child at the start rather than
-    /// centred; and an icon passed without an explicit size fell back to the text size while
-    /// `SidebarToggleButton` pinned its own at 16px. Nothing here sets a size, because nothing
-    /// here needs to.
-    ///
-    /// There is no separate collapse control: the Tasks row is it. A chevron that exists only to
-    /// fold the panel is one more thing in a rail that has room for very little.
+    /// There is no separate collapse control: the Tasks row is it. A chevron whose only job is
+    /// folding the panel is one more thing in a rail with room for very little.
     ///
     /// Collapsed, the rail holds those two rows and nothing else. The tasks are deliberately left
-    /// out — they all draw the same folder glyph, `SidebarMenuItem` takes no tooltip, and
-    /// `SidebarMenu` accepts nothing else to wrap in one, so a rail of them would be a column of
-    /// identical marks you could only tell apart by clicking. Their cards are already to the
-    /// right with their names on them.
+    /// out — they all draw the same folder glyph, so a rail of them would be a column of identical
+    /// marks you could only tell apart by clicking. Their cards are already to the right with
+    /// their names on them.
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = !self.workspace.sidebar_visible();
         let selected = self.workspace.selected();
@@ -811,28 +803,34 @@ impl MainView {
         Sidebar::left()
             .w(theme::layout::sidebar_width())
             .collapsed(collapsed)
-            // The collapsed flag and the width both have to be set on the *menu*, not the item.
-            // `SidebarMenu::render` overwrites each item's flag with its own, and it renders a
-            // bare `v_flex` — inside the header's `h_flex` that sizes to its text, leaving the
-            // rest of the row dead to the pointer. `Sidebar` sets both for its content children;
-            // for header and footer it does not, so they are set here.
             .header(
-                SidebarMenu::new().collapsed(collapsed).w_full().child(
-                    SidebarMenuItem::new(strings::main_tasks_heading())
-                        .icon(Glyph::Folder)
-                        .on_click(cx.listener(|view, _, _, cx| {
-                            view.workspace.toggle_sidebar();
-                            cx.notify();
-                        })),
-                ),
+                section_row(
+                    "sidebar-tasks",
+                    Glyph::Folder,
+                    strings::main_tasks_heading(),
+                    collapsed,
+                    cx,
+                )
+                .on_click(cx.listener(|view, _, _, cx| {
+                    view.workspace.toggle_sidebar();
+                    cx.notify();
+                })),
             )
-            .child(SidebarMenu::new().children(if collapsed { Vec::new() } else { tasks }))
+            .child(
+                SidebarMenu::new()
+                    // Indented under the Tasks row above, so the two levels read as two levels.
+                    .pl(TASK_INDENT)
+                    .children(if collapsed { Vec::new() } else { tasks }),
+            )
             .footer(
-                SidebarMenu::new().collapsed(collapsed).w_full().child(
-                    SidebarMenuItem::new(strings::settings_title())
-                        .icon(Glyph::Settings)
-                        .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
-                ),
+                section_row(
+                    "sidebar-settings",
+                    Glyph::Settings,
+                    strings::settings_title(),
+                    collapsed,
+                    cx,
+                )
+                .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
             )
     }
 
@@ -1247,6 +1245,75 @@ impl MainView {
                     ),
             )
     }
+}
+
+/// `Sidebar`'s width once collapsed. Its own `COLLAPSED_WIDTH`, which it keeps private.
+const RAIL_WIDTH: f32 = 48.;
+/// What `Sidebar` pads its header and footer with: `px_3` open, `px_2` collapsed. That 4px
+/// difference is what [`section_row`] cancels out.
+const SIDEBAR_PAD_OPEN: f32 = 12.;
+const SIDEBAR_PAD_RAIL: f32 = 8.;
+/// A section's icon. Bigger than a task's 16px, which is half of what separates the two levels.
+const SECTION_ICON: f32 = 18.;
+/// How far the task list sits inside its section heading.
+const TASK_INDENT: Pixels = px(9.);
+
+/// One of the two top-level rows: Tasks, and Settings.
+///
+/// Hand-built rather than a `SidebarMenuItem`, for one reason: a menu item's row is hard-coded
+/// `text_sm` and its label is a plain `SharedString`, so a section made from one can never be
+/// heavier than the list underneath it. Everything else is copied from a menu item on purpose —
+/// the same radius, the same hover colour, the same 8px rhythm — because these rows sit in the
+/// same column as the tasks and should differ only in weight.
+///
+/// **The horizontal padding is derived, not chosen.** `Sidebar` pads its header and footer 12px
+/// when open and 8px in the rail, so a row with fixed padding of its own slides 4px sideways
+/// every time the panel folds. Here the padding is whatever puts the icon on the same x in both
+/// states — and that x is the one that centres it in the rail, so it is both still and centred.
+fn section_row(
+    id: &'static str,
+    glyph: Glyph,
+    label: &'static str,
+    collapsed: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    // Centred in the rail. Solving for this once is what keeps the two states honest.
+    let icon_left = (RAIL_WIDTH - SECTION_ICON) / 2.;
+    let sidebar_pad = if collapsed {
+        SIDEBAR_PAD_RAIL
+    } else {
+        SIDEBAR_PAD_OPEN
+    };
+
+    h_flex()
+        .id(id)
+        .w_full()
+        .gap(px(8.))
+        .px(px(icon_left - sidebar_pad))
+        .py(px(8.))
+        .rounded(cx.theme().radius)
+        .cursor_pointer()
+        .hover(|style| {
+            style
+                .bg(cx.theme().sidebar_accent.opacity(0.8))
+                .text_color(cx.theme().sidebar_accent_foreground)
+        })
+        .child(Icon::new(glyph).size(px(SECTION_ICON)))
+        .when(!collapsed, |row| {
+            row.child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_base()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(label),
+            )
+        })
+        // Only in the rail, where the label it replaces is not there to read.
+        .when(collapsed, |row| {
+            row.tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        })
 }
 
 /// Paths are monospaced and muted throughout, so a long one reads as reference rather than

@@ -816,12 +816,7 @@ impl MainView {
                     cx.notify();
                 })),
             )
-            .child(
-                SidebarMenu::new()
-                    // Indented under the Tasks row above, so the two levels read as two levels.
-                    .pl(TASK_INDENT)
-                    .children(if collapsed { Vec::new() } else { tasks }),
-            )
+            .child(SidebarMenu::new().children(if collapsed { Vec::new() } else { tasks }))
             .footer(
                 section_row(
                     "sidebar-settings",
@@ -1249,27 +1244,40 @@ impl MainView {
 
 /// `Sidebar`'s width once collapsed. Its own `COLLAPSED_WIDTH`, which it keeps private.
 const RAIL_WIDTH: f32 = 48.;
-/// What `Sidebar` pads its header and footer with: `px_3` open, `px_2` collapsed. That 4px
-/// difference is what [`section_row`] cancels out.
+/// What `Sidebar` pads its header and footer with, per state: `px_3`/`pt_3` open, `px_2`/`pt_2`
+/// in the rail. Every jump [`section_row`] has to cancel comes from this 4px.
 const SIDEBAR_PAD_OPEN: f32 = 12.;
 const SIDEBAR_PAD_RAIL: f32 = 8.;
-/// A section's icon. Bigger than a task's 16px, which is half of what separates the two levels.
+/// A section's icon. Bigger than a task's 16px, which is what separates the two levels.
 const SECTION_ICON: f32 = 18.;
-/// How far the task list sits inside its section heading.
-const TASK_INDENT: Pixels = px(9.);
+/// The gap between a section's icon and every edge of its hover background.
+///
+/// Derived, because in the rail there is exactly one value that works: the usable width there is
+/// `RAIL_WIDTH` less the sidebar's own padding on both sides, and the icon has to sit in the
+/// middle of it. Using the same number on all four sides, in both states, is what puts the icon
+/// dead centre of the highlight rather than jammed against one edge of it.
+const SECTION_PAD: f32 = (RAIL_WIDTH - 2. * SIDEBAR_PAD_RAIL - SECTION_ICON) / 2.;
+/// A section row, whatever it happens to hold.
+///
+/// **Fixed on purpose.** Left to size itself the row is as tall as its tallest child, so losing
+/// the label in the rail made it shorter and slid the icon upward — the vertical half of the
+/// same jump.
+const SECTION_ROW_H: f32 = SECTION_ICON + 2. * SECTION_PAD;
 
 /// One of the two top-level rows: Tasks, and Settings.
 ///
 /// Hand-built rather than a `SidebarMenuItem`, for one reason: a menu item's row is hard-coded
 /// `text_sm` and its label is a plain `SharedString`, so a section made from one can never be
 /// heavier than the list underneath it. Everything else is copied from a menu item on purpose —
-/// the same radius, the same hover colour, the same 8px rhythm — because these rows sit in the
-/// same column as the tasks and should differ only in weight.
+/// the same radius, the same hover colour — because these rows sit in the same column as the
+/// tasks and should differ only in weight.
 ///
-/// **The horizontal padding is derived, not chosen.** `Sidebar` pads its header and footer 12px
-/// when open and 8px in the rail, so a row with fixed padding of its own slides 4px sideways
-/// every time the panel folds. Here the padding is whatever puts the icon on the same x in both
-/// states — and that x is the one that centres it in the rail, so it is both still and centred.
+/// **Position is corrected with margin, never padding.** `Sidebar` pads its header and footer 12
+/// when open and 8 in the rail, on the top as well as the sides, so a row that just sits there
+/// jumps both ways as the panel folds. Padding could cancel that out, but padding is also what
+/// spaces the icon inside its own hover background — spend it on position and the highlight ends
+/// up tight on one side and loose on the others. Margin moves the row without reshaping it, so
+/// the icon keeps the same gap on all four sides in both states.
 fn section_row(
     id: &'static str,
     glyph: Glyph,
@@ -1277,20 +1285,26 @@ fn section_row(
     collapsed: bool,
     cx: &App,
 ) -> Stateful<Div> {
-    // Centred in the rail. Solving for this once is what keeps the two states honest.
-    let icon_left = (RAIL_WIDTH - SECTION_ICON) / 2.;
     let sidebar_pad = if collapsed {
         SIDEBAR_PAD_RAIL
     } else {
         SIDEBAR_PAD_OPEN
     };
+    // Sideways: line the row's box up with where the rail's padding would put it, which is the
+    // one position that lets the box fill the rail exactly and so centre the icon in it.
+    let nudge_x = SIDEBAR_PAD_RAIL - sidebar_pad;
+    // Downward: line it up with where the open state's padding puts it, so the row does not rise
+    // when the panel folds.
+    let nudge_y = SIDEBAR_PAD_OPEN - sidebar_pad;
 
     h_flex()
         .id(id)
         .w_full()
-        .gap(px(8.))
-        .px(px(icon_left - sidebar_pad))
-        .py(px(8.))
+        .h(px(SECTION_ROW_H))
+        .ml(px(nudge_x))
+        .mt(px(nudge_y))
+        .px(px(SECTION_PAD))
+        .gap(px(SECTION_PAD))
         .rounded(cx.theme().radius)
         .cursor_pointer()
         .hover(|style| {

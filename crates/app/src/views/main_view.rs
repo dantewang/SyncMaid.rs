@@ -12,13 +12,11 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::sheet::Sheet;
-use gpui_component::sidebar::{
-    Sidebar, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarToggleButton,
-};
+use gpui_component::sidebar::{Sidebar, SidebarMenu, SidebarMenuItem};
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{
-    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Root,
-    Sizable as _, WindowExt as _,
+    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Collapsible as _, Disableable as _,
+    Icon, Root, Sizable as _, WindowExt as _,
 };
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{
@@ -766,83 +764,73 @@ impl MainView {
             .child(self.render_main_pane(cx))
     }
 
-    /// The task list, and the way into settings.
+    /// Tasks, the tasks themselves, and the way into settings.
     ///
-    /// **Everything here has to be told when it is collapsed.** `Sidebar` keeps its header and
-    /// footer as `AnyElement`, so — unlike the menu items, which it does collapse for you — it
-    /// cannot pass the state down. It just narrows to 48px and clips. Left to itself the header's
-    /// heading pushed the toggle out of the rail, and the only control that expands the sidebar
-    /// again went with it.
+    /// **Every row here is a `SidebarMenuItem`, and that is the whole design.** Tasks and Settings
+    /// are the same widget as the tasks between them, so they cannot drift: one icon size, one
+    /// hover shape, one alignment, and the library centres all of them when the rail narrows.
     ///
-    /// Collapsed, the rail is chrome only: expand at the top, settings at the foot. The tasks are
-    /// deliberately not there. Every one of them draws the same folder glyph, `SidebarMenuItem`
-    /// takes no tooltip, and `SidebarMenu` accepts nothing else to wrap in one — so a rail of
-    /// tasks would be a column of identical marks you can only tell apart by clicking. The cards
-    /// are still right there, with their names on them.
+    /// The alternative — `SidebarHeader` and `SidebarFooter` — is what this replaced, and each of
+    /// its parts went wrong differently. Both are `h_flex().p_2().w_full().justify_between()` with
+    /// hover styling of their own, so a `Button` inside one drew a second, differently sized
+    /// highlight over the first; `justify_between` left a lone child at the start rather than
+    /// centred; and an icon passed without an explicit size fell back to the text size while
+    /// `SidebarToggleButton` pinned its own at 16px. Nothing here sets a size, because nothing
+    /// here needs to.
+    ///
+    /// There is no separate collapse control: the Tasks row is it. A chevron that exists only to
+    /// fold the panel is one more thing in a rail that has room for very little.
+    ///
+    /// Collapsed, the rail holds those two rows and nothing else. The tasks are deliberately left
+    /// out — they all draw the same folder glyph, `SidebarMenuItem` takes no tooltip, and
+    /// `SidebarMenu` accepts nothing else to wrap in one, so a rail of them would be a column of
+    /// identical marks you could only tell apart by clicking. Their cards are already to the
+    /// right with their names on them.
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = !self.workspace.sidebar_visible();
         let selected = self.workspace.selected();
 
-        let items: Vec<SidebarMenuItem> = if collapsed {
-            Vec::new()
-        } else {
-            self.workspace
-                .tasks()
-                .iter()
-                .map(|task| {
-                    let id = task.id;
-                    let health = health_of(task, self.workspace.statuses());
-                    let (glyph, color) = outcome_appearance(health.outcome, cx);
-                    SidebarMenuItem::new(task.name.clone())
-                        .icon(Glyph::Folder)
-                        .active(selected == Some(id))
-                        // The source path used to sit under the name; a menu item has no room
-                        // for it. A health dot says more per pixel, and the path is on the card.
-                        .suffix(Icon::new(glyph).size(px(13.)).text_color(color))
-                        .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
-                })
-                .collect()
-        };
+        let tasks: Vec<SidebarMenuItem> = self
+            .workspace
+            .tasks()
+            .iter()
+            .map(|task| {
+                let id = task.id;
+                let health = health_of(task, self.workspace.statuses());
+                let (glyph, color) = outcome_appearance(health.outcome, cx);
+                SidebarMenuItem::new(task.name.clone())
+                    .icon(Glyph::Folder)
+                    .active(selected == Some(id))
+                    // The source path used to sit under the name; a menu item has no room for
+                    // it. A health dot says more per pixel, and the path is on the card.
+                    .suffix(Icon::new(glyph).size(px(13.)).text_color(color))
+                    .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
+            })
+            .collect();
 
         Sidebar::left()
             .w(theme::layout::sidebar_width())
             .collapsed(collapsed)
+            // The collapsed flag and the width both have to be set on the *menu*, not the item.
+            // `SidebarMenu::render` overwrites each item's flag with its own, and it renders a
+            // bare `v_flex` — inside the header's `h_flex` that sizes to its text, leaving the
+            // rest of the row dead to the pointer. `Sidebar` sets both for its content children;
+            // for header and footer it does not, so they are set here.
             .header(
-                SidebarHeader::new()
-                    // The heading is what crowded the toggle out of the rail, so it only exists
-                    // when there is room for it.
-                    .when(!collapsed, |header| {
-                        header.child(
-                            div()
-                                .flex_1()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(strings::main_tasks_heading()),
-                        )
-                    })
-                    .child(
-                        SidebarToggleButton::left()
-                            .collapsed(collapsed)
-                            .on_click(cx.listener(|view, _, _, cx| {
-                                view.workspace.toggle_sidebar();
-                                cx.notify();
-                            })),
-                    ),
+                SidebarMenu::new().collapsed(collapsed).w_full().child(
+                    SidebarMenuItem::new(strings::main_tasks_heading())
+                        .icon(Glyph::Folder)
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.workspace.toggle_sidebar();
+                            cx.notify();
+                        })),
+                ),
             )
-            .child(SidebarMenu::new().children(items))
+            .child(SidebarMenu::new().children(if collapsed { Vec::new() } else { tasks }))
             .footer(
-                SidebarFooter::new().child(
-                    Button::new("open-settings")
+                SidebarMenu::new().collapsed(collapsed).w_full().child(
+                    SidebarMenuItem::new(strings::settings_title())
                         .icon(Glyph::Settings)
-                        // Icon-only in the rail, and the tooltip carries what the label said.
-                        .map(|button| {
-                            if collapsed {
-                                button.tooltip(strings::settings_title())
-                            } else {
-                                button.label(strings::settings_title()).w_full()
-                            }
-                        })
-                        .ghost()
                         .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
                 ),
             )

@@ -767,40 +767,59 @@ impl MainView {
     }
 
     /// The task list, and the way into settings.
+    ///
+    /// **Everything here has to be told when it is collapsed.** `Sidebar` keeps its header and
+    /// footer as `AnyElement`, so — unlike the menu items, which it does collapse for you — it
+    /// cannot pass the state down. It just narrows to 48px and clips. Left to itself the header's
+    /// heading pushed the toggle out of the rail, and the only control that expands the sidebar
+    /// again went with it.
+    ///
+    /// Collapsed, the rail is chrome only: expand at the top, settings at the foot. The tasks are
+    /// deliberately not there. Every one of them draws the same folder glyph, `SidebarMenuItem`
+    /// takes no tooltip, and `SidebarMenu` accepts nothing else to wrap in one — so a rail of
+    /// tasks would be a column of identical marks you can only tell apart by clicking. The cards
+    /// are still right there, with their names on them.
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let collapsed = !self.workspace.sidebar_visible();
         let selected = self.workspace.selected();
 
-        let items: Vec<SidebarMenuItem> = self
-            .workspace
-            .tasks()
-            .iter()
-            .map(|task| {
-                let id = task.id;
-                let health = health_of(task, self.workspace.statuses());
-                let (glyph, color) = outcome_appearance(health.outcome, cx);
-                SidebarMenuItem::new(task.name.clone())
-                    .icon(Glyph::Folder)
-                    .active(selected == Some(id))
-                    // The source path used to sit under the name; a menu item has no room for
-                    // it. A health dot says more per pixel, and the path is on the card.
-                    .suffix(Icon::new(glyph).size(px(13.)).text_color(color))
-                    .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
-            })
-            .collect();
+        let items: Vec<SidebarMenuItem> = if collapsed {
+            Vec::new()
+        } else {
+            self.workspace
+                .tasks()
+                .iter()
+                .map(|task| {
+                    let id = task.id;
+                    let health = health_of(task, self.workspace.statuses());
+                    let (glyph, color) = outcome_appearance(health.outcome, cx);
+                    SidebarMenuItem::new(task.name.clone())
+                        .icon(Glyph::Folder)
+                        .active(selected == Some(id))
+                        // The source path used to sit under the name; a menu item has no room
+                        // for it. A health dot says more per pixel, and the path is on the card.
+                        .suffix(Icon::new(glyph).size(px(13.)).text_color(color))
+                        .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
+                })
+                .collect()
+        };
 
         Sidebar::left()
             .w(theme::layout::sidebar_width())
             .collapsed(collapsed)
             .header(
                 SidebarHeader::new()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(strings::main_tasks_heading()),
-                    )
+                    // The heading is what crowded the toggle out of the rail, so it only exists
+                    // when there is room for it.
+                    .when(!collapsed, |header| {
+                        header.child(
+                            div()
+                                .flex_1()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(strings::main_tasks_heading()),
+                        )
+                    })
                     .child(
                         SidebarToggleButton::left()
                             .collapsed(collapsed)
@@ -815,9 +834,15 @@ impl MainView {
                 SidebarFooter::new().child(
                     Button::new("open-settings")
                         .icon(Glyph::Settings)
-                        .label(strings::settings_title())
+                        // Icon-only in the rail, and the tooltip carries what the label said.
+                        .map(|button| {
+                            if collapsed {
+                                button.tooltip(strings::settings_title())
+                            } else {
+                                button.label(strings::settings_title()).w_full()
+                            }
+                        })
                         .ghost()
-                        .w_full()
                         .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
                 ),
             )

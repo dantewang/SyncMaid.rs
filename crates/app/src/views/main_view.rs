@@ -88,9 +88,18 @@ fn editor_sheet(
 /// The horizontal padding a `Sheet` puts on its body.
 const SHEET_PADDING: Pixels = px(16.);
 
-/// Roughly what a `Sheet`'s own title row and footer row occupy, with a little slack. Only the
-/// slack matters: too small wastes a few pixels, too large would hide the footer again.
-const SHEET_CHROME: Pixels = px(112.);
+/// What a `Sheet`'s own title row and footer row occupy, measured (122) plus 2px of slack.
+///
+/// This is what keeps Cancel and Save in the same place whatever a sheet is for and however much
+/// it holds. The body grows to fill the sheet, so with short content the footer sits at the
+/// bottom on its own; with content taller than this the body would keep growing and carry the
+/// footer down with it. Capping the content here means both cases end in the same place.
+///
+/// **Err high, never low.** Too high costs a couple of pixels of scroll area nobody can see. Too
+/// low and tall sheets push their footer below short ones — and eventually off the window, which
+/// is how Save went missing the first time. Re-measure by capturing `--show task` and
+/// `--show destination-edit` and comparing where the Save button ends.
+const SHEET_CHROME: Pixels = px(124.);
 
 /// Which of the two things the window body is showing.
 ///

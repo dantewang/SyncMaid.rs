@@ -1290,8 +1290,11 @@ fn section_row(
     } else {
         SIDEBAR_PAD_OPEN
     };
-    // Sideways: line the row's box up with where the rail's padding would put it, which is the
-    // one position that lets the box fill the rail exactly and so centre the icon in it.
+    // Sideways: inset the row the same distance from *both* sidebar edges, which is the rail's
+    // own padding — the one inset that lets the box fill the rail exactly and so centre the icon
+    // in it. Applied to each side, so the box stays centred in the panel when it is open too.
+    // It has to grow rather than be `w_full`: a percentage width ignores margins, so correcting
+    // only the position left the box 8 from the left edge and 16 from the right.
     let nudge_x = SIDEBAR_PAD_RAIL - sidebar_pad;
     // Downward: line it up with where the open state's padding puts it, so the row does not rise
     // when the panel folds.
@@ -1299,9 +1302,10 @@ fn section_row(
 
     h_flex()
         .id(id)
-        .w_full()
+        .flex_1()
         .h(px(SECTION_ROW_H))
         .ml(px(nudge_x))
+        .mr(px(nudge_x))
         .mt(px(nudge_y))
         .px(px(SECTION_PAD))
         .gap(px(SECTION_PAD))

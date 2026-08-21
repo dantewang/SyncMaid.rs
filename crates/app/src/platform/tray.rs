@@ -123,10 +123,10 @@ mod platform {
     }
 
     pub(super) fn run_message_loop() {
+        let mut message = MSG::default();
         // SAFETY: a textbook win32 pump. `message` is a live, zeroed MSG for every call, and
         // this thread owns the tray's hidden window, so it is the thread that must pump it.
         unsafe {
-            let mut message: MSG = std::mem::zeroed();
             while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);

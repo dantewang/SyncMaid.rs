@@ -26,8 +26,10 @@ pub enum Launch {
 pub struct SingleInstance {
     /// Fires when another launch of this same install asked us to show ourselves.
     pub knock: flume::Receiver<()>,
+    /// The named mutex that marks this install as taken; releasing it is this field dropping.
+    /// `None` when the claim could not be made and we chose to start unguarded.
     #[cfg(windows)]
-    _claim: windows_impl::Claim,
+    _claim: Option<std::os::windows::io::OwnedHandle>,
 }
 
 /// Claims this install, or hands off to the copy that already has it.
@@ -66,26 +68,15 @@ fn fingerprint(directory: &Path) -> u64 {
 
 #[cfg(windows)]
 mod windows_impl {
+    use std::os::windows::io::{AsRawHandle, HandleOrNull, OwnedHandle};
     use std::path::Path;
 
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
+    use windows_sys::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows_sys::Win32::System::Threading::{
         CreateEventW, CreateMutexW, SetEvent, WaitForSingleObject, INFINITE,
     };
 
     use super::{fingerprint, Launch, SingleInstance};
-
-    /// Owns the mutex handle. Dropping it — or the process exiting — releases the claim.
-    pub struct Claim(HANDLE);
-
-    // The handle is only closed, from whichever thread holds the struct.
-    unsafe impl Send for Claim {}
-
-    impl Drop for Claim {
-        fn drop(&mut self) {
-            unsafe { CloseHandle(self.0) };
-        }
-    }
 
     pub fn acquire(executable_directory: &Path) -> Launch {
         let id = fingerprint(executable_directory);
@@ -94,35 +85,34 @@ mod windows_impl {
         let mutex_name = wide(&format!("Local\\SyncMaid-{id:016x}"));
         let event_name = wide(&format!("Local\\SyncMaid-{id:016x}-show"));
 
-        let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, mutex_name.as_ptr()) };
-        if mutex.is_null() {
+        let Some((mutex, already_claimed)) = claim(&mutex_name) else {
             // Without the mutex there is nothing to coordinate through. Starting anyway is the
             // lesser failure: at worst the old behaviour, where two copies could run.
             tracing::warn!("could not claim single-instance; starting anyway");
             return Launch::First(SingleInstance {
                 knock: flume::unbounded().1,
-                _claim: Claim(std::ptr::null_mut()),
+                _claim: None,
             });
-        }
+        };
 
-        if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-            unsafe { CloseHandle(mutex) };
+        if already_claimed {
+            // Let go before knocking: the claim belongs to the copy that got there first.
+            drop(mutex);
             knock(&event_name);
             return Launch::Another;
         }
 
         let (sender, knock) = flume::unbounded();
-        // Auto-reset, initially unset: each knock wakes the wait exactly once.
-        let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, event_name.as_ptr()) };
-        if !event.is_null() {
-            let event = EventHandle(event);
+        if let Some(event) = show_event(&event_name) {
             std::thread::Builder::new()
                 .name("syncmaid-instance".into())
                 .spawn(move || {
-                    let event = event;
                     // Ends with the process. A closed channel means the window is gone, which
                     // is the same moment the process is on its way out.
-                    while unsafe { WaitForSingleObject(event.0, INFINITE) } == 0 {
+                    //
+                    // SAFETY: this thread owns `event` for the whole loop, so the handle is
+                    // live for every call, and waiting only reads it.
+                    while unsafe { WaitForSingleObject(event.as_raw_handle(), INFINITE) } == 0 {
                         if sender.send(()).is_err() {
                             return;
                         }
@@ -133,31 +123,50 @@ mod windows_impl {
 
         Launch::First(SingleInstance {
             knock,
-            _claim: Claim(mutex),
+            _claim: Some(mutex),
         })
+    }
+
+    /// Takes this install's mutex, and says whether someone was already holding it.
+    ///
+    /// `None` when Windows would not hand one out at all.
+    fn claim(mutex_name: &[u16]) -> Option<(OwnedHandle, bool)> {
+        // SAFETY: `mutex_name` is a NUL-terminated UTF-16 buffer that outlives the call, and the
+        // handle comes back ours alone, wanting nothing but the `CloseHandle` that `OwnedHandle`
+        // does on drop. `GetLastError` is read inside the same block, so nothing can run in
+        // between and overwrite it.
+        let (handle, error) = unsafe {
+            let handle = CreateMutexW(std::ptr::null(), 0, mutex_name.as_ptr());
+            (HandleOrNull::from_raw_handle(handle), GetLastError())
+        };
+        // Null is Windows refusing, and an `OwnedHandle` cannot hold one — so the conversion is
+        // the failure check.
+        let mutex = OwnedHandle::try_from(handle).ok()?;
+        Some((mutex, error == ERROR_ALREADY_EXISTS))
     }
 
     /// Tells the copy already running to show itself. Best effort: if the event is not there,
     /// the other copy is mid-exit and this launch has simply lost a race.
     fn knock(event_name: &[u16]) {
-        let event = unsafe { CreateEventW(std::ptr::null(), 0, 0, event_name.as_ptr()) };
-        if !event.is_null() {
-            unsafe {
-                SetEvent(event);
-                CloseHandle(event);
-            }
-        }
+        let Some(event) = show_event(event_name) else {
+            return;
+        };
+        // SAFETY: `event` stays live until it drops at the end of this function, and signalling
+        // is all this does to it.
+        unsafe { SetEvent(event.as_raw_handle()) };
     }
 
-    /// Carries the event handle onto the waiting thread.
-    struct EventHandle(HANDLE);
-
-    unsafe impl Send for EventHandle {}
-
-    impl Drop for EventHandle {
-        fn drop(&mut self) {
-            unsafe { CloseHandle(self.0) };
-        }
+    /// Opens this install's "show yourself" event, creating it if nobody has yet.
+    ///
+    /// Auto-reset and initially unset: each knock wakes the wait exactly once.
+    fn show_event(event_name: &[u16]) -> Option<OwnedHandle> {
+        // SAFETY: `event_name` is a NUL-terminated UTF-16 buffer that outlives the call, and the
+        // handle it returns is ours to close — which is the whole of `OwnedHandle`'s job.
+        let handle = unsafe {
+            HandleOrNull::from_raw_handle(CreateEventW(std::ptr::null(), 0, 0, event_name.as_ptr()))
+        };
+        // As in `claim`: null means refused, and the conversion is the check.
+        OwnedHandle::try_from(handle).ok()
     }
 
     fn wide(text: &str) -> Vec<u16> {

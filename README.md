@@ -4,6 +4,8 @@
 
 # SyncMaid
 
+**This repo is a boring re-write of https://github.com/dantewang/SyncMaid in Rust + GPUI**
+
 **One-way file sync for Windows, done for you.**
 
 SyncMaid watches a source folder and keeps one or more destinations in sync with it — each

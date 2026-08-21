@@ -52,7 +52,7 @@ A release build:
 cargo build --release
 ```
 
-`SyncMaid.exe --show <dialog>` opens straight into one editor or confirmation — `task`,
+`SyncMaid-rs.exe --show <dialog>` opens straight into one editor or confirmation — `task`,
 `task-edit`, `workspace`, `routing`, `destination`, `destination-edit`, `settings`, `confirm`
 or `mirror-delete`. A development affordance: several of them sit three clicks deep.
 
@@ -79,7 +79,7 @@ filesystems cannot quietly disagree.
 cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid
 ```
 
-The executable lands in `target/x86_64-pc-windows-msvc/release/SyncMaid.exe` and **is the whole
+The executable lands in `target/x86_64-pc-windows-msvc/release/SyncMaid-rs.exe` and **is the whole
 app**: the icon, the string tables and the C runtime are all linked into it, so every DLL it
 imports ships with Windows itself. Nothing to install, nothing to copy alongside it — hand
 someone that one file and it runs.

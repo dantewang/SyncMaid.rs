@@ -21,7 +21,7 @@ pub struct ConfigLocation {
 }
 
 impl ConfigLocation {
-    /// The real location: `<the folder holding SyncMaid.exe>/Data`.
+    /// The real location: `<the folder holding SyncMaid-rs.exe>/Data`.
     pub fn portable() -> Self {
         let executable_directory = std::env::current_exe()
             .ok()

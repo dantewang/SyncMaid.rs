@@ -88,7 +88,7 @@ destination to **Add-only** if it should never lose anything.
 
 ## The log
 
-`Data\logs\syncmaid.log`, beside `SyncMaid.exe` (see
+`Data\logs\syncmaid.log`, beside `SyncMaid-rs.exe` (see
 [where things are on disk](settings.md#where-things-are-on-disk)). It is the place to look when a status
 message isn't specific enough, and it rolls over at about 5 MB, keeping one previous file.
 

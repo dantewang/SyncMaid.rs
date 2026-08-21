@@ -42,7 +42,7 @@ Tasks run as usual. Takes effect on the next launch.
 ## Storage
 
 SyncMaid is **portable**. Everything it saves — your tasks, settings, status and log — lives
-in a `Data` folder beside `SyncMaid.exe`, so moving that folder takes your tasks with it and
+in a `Data` folder beside `SyncMaid-rs.exe`, so moving that folder takes your tasks with it and
 the machine it ran on keeps nothing. The page shows the exact path and opens it for you.
 
 There is nothing to choose here, and that is the point: put the app where you want its data,
@@ -67,7 +67,7 @@ The installed version.
 
 ## Where things are on disk
 
-Inside the `Data` folder beside `SyncMaid.exe`:
+Inside the `Data` folder beside `SyncMaid-rs.exe`:
 
 | File | What it is |
 |---|---|

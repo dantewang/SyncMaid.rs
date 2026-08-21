@@ -1,4 +1,4 @@
-//! The tray-residency gate, run by `SyncMaid.exe --self-test-tray`.
+//! The tray-residency gate, run by `SyncMaid-rs.exe --self-test-tray`.
 //!
 //! gpui breaks its message loop when the last window is *closed*, which would make a tray-only
 //! SyncMaid impossible. The port relies on hiding the native window instead, and this is the

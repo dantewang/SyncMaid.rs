@@ -13,7 +13,7 @@ name = "syncmaid"
 path = "src/lib.rs"
 
 [[bin]]
-name = "SyncMaid"
+name = "SyncMaid-rs"
 path = "src/main.rs"
 
 [dependencies]

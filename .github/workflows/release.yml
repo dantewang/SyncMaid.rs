@@ -37,7 +37,7 @@ jobs:
           fetch-depth: 0  # build.rs derives the version from the tag history
 
       - name: Build (x86_64-pc-windows-msvc)
-        run: cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid
+        run: cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid-rs
 
       # The release build is what users run, so it is what the tests have to pass against.
       - name: Test
@@ -54,7 +54,7 @@ jobs:
           # The runnable app only. No .pdb: it is larger than the executable and useless
           # without the matching source.
           New-Item -ItemType Directory publish | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/SyncMaid.exe publish/
+          Copy-Item target/x86_64-pc-windows-msvc/release/SyncMaid-rs.exe publish/
           Copy-Item README.md publish/
           Compress-Archive -Path publish/* -DestinationPath $zip -Force
 

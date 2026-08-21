@@ -6,7 +6,7 @@ way: the source is the truth, and the destinations follow it. It can run when yo
 
 ## Install
 
-SyncMaid ships as a single `SyncMaid.exe`. There is no installer and no runtime to install —
+SyncMaid ships as a single `SyncMaid-rs.exe`. There is no installer and no runtime to install —
 copy it anywhere you can write to (your user folder, an external drive) and run it.
 
 It is **portable**: everything it saves lives in a `Data` folder beside the executable, so a
@@ -68,6 +68,6 @@ source out rather than each taking a copy of it.
 
 ## Where your configuration lives
 
-Tasks, settings and the log live in a `Data` folder beside `SyncMaid.exe` — see
+Tasks, settings and the log live in a `Data` folder beside `SyncMaid-rs.exe` — see
 [Storage](settings.md#storage).
 

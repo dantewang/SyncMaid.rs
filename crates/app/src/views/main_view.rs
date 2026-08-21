@@ -244,7 +244,7 @@ impl MainView {
             .collect();
     }
 
-    /// Opens one dialog by name, for `SyncMaid.exe --show <dialog>`.
+    /// Opens one dialog by name, for `SyncMaid-rs.exe --show <dialog>`.
     ///
     /// Several of these sit three clicks deep; checking one should not need those three clicks.
     pub fn show_dialog(&mut self, dialog: &str, window: &mut Window, cx: &mut Context<Self>) {

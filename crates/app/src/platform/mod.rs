@@ -2,6 +2,7 @@
 //! the platform.
 
 pub mod autostart;
+pub mod shell_open;
 pub mod single_instance;
 pub mod tray;
 pub mod window_visibility;

@@ -39,6 +39,8 @@ pub enum Glyph {
     Filter,
     /// The catch-all "everything else" rule.
     Asterisk,
+    /// The activity log.
+    Log,
 
     // --- Verbs ---
     Run,
@@ -52,6 +54,8 @@ pub enum Glyph {
     /// Show what a filter or a plan would do.
     Eye,
     Check,
+    /// Hand something to whatever the OS opens it with.
+    OpenExternal,
 
     // --- Triggers ---
     /// Run only when asked.
@@ -86,12 +90,14 @@ impl IconNamed for Glyph {
 
             Self::Folder => IconName::Folder.path(),
             Self::Asterisk => IconName::Asterisk.path(),
+            Self::Log => IconName::File.path(),
 
             Self::Add => IconName::Plus.path(),
             Self::Copy => IconName::Copy.path(),
             Self::Settings => IconName::Settings.path(),
             Self::Eye => IconName::Eye.path(),
             Self::Check => IconName::Check.path(),
+            Self::OpenExternal => IconName::ExternalLink.path(),
 
             Self::Success => IconName::CircleCheck.path(),
             Self::Warning => IconName::TriangleAlert.path(),
@@ -155,7 +161,7 @@ mod tests {
         assert_eq!(paths.len(), unique.len(), "{paths:?}");
     }
 
-    const ALL: [Glyph; 32] = [
+    const ALL: [Glyph; 34] = [
         Glyph::Back,
         Glyph::ChevronDown,
         Glyph::ChevronLeft,
@@ -171,6 +177,7 @@ mod tests {
         Glyph::Route,
         Glyph::Filter,
         Glyph::Asterisk,
+        Glyph::Log,
         Glyph::Run,
         Glyph::Stop,
         Glyph::Sync,
@@ -181,6 +188,7 @@ mod tests {
         Glyph::Settings,
         Glyph::Eye,
         Glyph::Check,
+        Glyph::OpenExternal,
         Glyph::Manual,
         Glyph::Clock,
         Glyph::Recycle,

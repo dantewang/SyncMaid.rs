@@ -61,6 +61,15 @@ impl Workspace {
         &self.data_directory
     }
 
+    /// The activity log, resolved the same way the logger resolved it at startup.
+    ///
+    /// Through `ConfigLocation` rather than joining the segments here: the reader has to look
+    /// where the writer wrote, and one of the two spelling it out itself is how that stops
+    /// being true.
+    pub fn log_path(&self) -> std::path::PathBuf {
+        ConfigLocation::at(&self.data_directory).log_path()
+    }
+
     pub fn tasks(&self) -> &[SyncTask] {
         &self.tasks
     }

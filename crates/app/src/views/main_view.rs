@@ -11,6 +11,7 @@ use gpui::{
     SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::link::Link;
 use gpui_component::sheet::Sheet;
 use gpui_component::sidebar::{Sidebar, SidebarMenu, SidebarMenuItem};
 use gpui_component::tooltip::Tooltip;
@@ -27,12 +28,14 @@ use syncmaid_core::triggers::{CronSchedule, DefaultTriggerSourceFactory, Notific
 use uuid::Uuid;
 
 use crate::components::Glyph;
+use crate::services::logging;
 use crate::state::{health_of, RunGate, TriggerEvent, TriggerHost, Workspace};
 use crate::strings;
 use crate::theme;
 use crate::views::dialogs::{
     Prompt, TaskEditor, TaskEditorEvent, TaskWorkspace, TaskWorkspaceEvent,
 };
+use crate::views::log_viewer::{self, LogRequest, OpenLogViewer};
 use crate::views::mirror_delete::{self, MirrorDeleteDecision};
 use crate::views::{SettingsEvent, SettingsView};
 
@@ -129,6 +132,10 @@ pub struct MainView {
     trigger_errors: HashMap<Uuid, String>,
     /// When each scheduled task fires next, refreshed on a timer so the label stays honest.
     next_runs: HashMap<Uuid, DateTime<Local>>,
+
+    /// The one log window, while it is open. Kept so that the next status click re-points it
+    /// rather than opening a second — see `views::log_viewer`.
+    log_viewer: Option<OpenLogViewer>,
 }
 
 impl MainView {
@@ -152,6 +159,7 @@ impl MainView {
             triggers,
             trigger_errors: HashMap::new(),
             next_runs: HashMap::new(),
+            log_viewer: None,
         };
         view.sync_triggers(cx);
 
@@ -309,6 +317,17 @@ impl MainView {
                     tracing::info!(?decision, "the confirmation window was answered");
                 });
             }
+            // The real log, read from the real file, for the first destination there is.
+            "log" => {
+                if let Some((task, destination)) = self
+                    .workspace
+                    .tasks()
+                    .first()
+                    .and_then(|task| Some((task.id, task.destinations.first()?.id)))
+                {
+                    self.open_log_viewer(task, destination, cx);
+                }
+            }
             "settings" => self.open_settings(cx),
             "confirm" => {
                 if let Some(id) = first_task {
@@ -326,6 +345,37 @@ impl MainView {
     /// Whether closing the window should hide it instead of quitting.
     pub fn close_to_tray(&self) -> bool {
         self.workspace.settings().close_to_tray
+    }
+
+    /// Shows this destination's log lines, in the window already open if there is one.
+    ///
+    /// One window, whichever destination is clicked: `OpenLogViewer::show` re-points it and
+    /// reports whether it is still there, so a window the user closed is replaced rather than
+    /// leaving the click doing nothing.
+    fn open_log_viewer(&mut self, task_id: Uuid, destination_id: Uuid, cx: &mut Context<Self>) {
+        let Some(task) = self.workspace.task(task_id) else {
+            return;
+        };
+        let Some(destination) = task
+            .destinations
+            .iter()
+            .find(|candidate| candidate.id == destination_id)
+        else {
+            return;
+        };
+
+        let request = LogRequest {
+            task_name: task.name.clone(),
+            destination_name: destination.name.clone(),
+            log_path: self.workspace.log_path(),
+        };
+
+        if let Some(open) = &self.log_viewer {
+            if open.show(request.clone(), cx) {
+                return;
+            }
+        }
+        self.log_viewer = log_viewer::open(request, cx);
     }
 
     fn gate_for(&mut self, task_id: Uuid) -> Arc<RunGate> {
@@ -704,18 +754,21 @@ fn log_destination(task: &SyncTask, status: &DestinationSyncStatus) {
         .find(|destination| destination.id == status.destination_id)
         .map_or("?", |destination| destination.name.as_str());
 
+    // Through `destination_tag` rather than spelled out again: this opening is also the needle
+    // the log window searches on, and the two drifting apart is a window that silently finds
+    // nothing.
+    let tag = logging::destination_tag(&task.name, name);
+
     match status.outcome {
         SyncOutcome::Failed | SyncOutcome::NeedsConfirmation => tracing::warn!(
-            "Sync '{}' → '{}': {:?} · {}",
-            task.name,
-            name,
+            "{}: {:?} · {}",
+            tag,
             status.outcome,
             status.error.as_deref().unwrap_or("")
         ),
         _ => tracing::info!(
-            "Sync '{}' → '{}': {:?} · {} copied, {} in use",
-            task.name,
-            name,
+            "{}: {:?} · {} copied, {} in use",
+            tag,
             status.outcome,
             status.files_copied,
             status.files_deferred
@@ -1170,17 +1223,36 @@ impl MainView {
                     .child(path_text(destination.local_path(), cx)),
             )
             .child(
+                // A link, because the sentence here is a summary and the log is the rest of it.
+                //
+                // At rest it keeps the outcome's colour — the row's one signal of health must
+                // not read as blue-for-clickable — and `Link` supplies the underline. Hover is
+                // the library's link colour, which is the affordance rather than the signal.
                 div()
-                    .max_w(px(280.))
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .text_color(color)
-                    // A live progress line takes the row over while the run is going.
+                    .id(SharedString::from(format!("status-{id}")))
+                    .tooltip(|window, cx| Tooltip::new(strings::dest_log_tip()).build(window, cx))
                     .child(
-                        self.progress
-                            .get(&id)
-                            .cloned()
-                            .unwrap_or_else(|| status_text(status)),
+                        Link::new(SharedString::from(format!("status-link-{id}")))
+                            .max_w(px(280.))
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .text_color(color)
+                            .text_decoration_color(color)
+                            // Re-stated, not redundant: `text_decoration_color` builds a fresh
+                            // underline in this refinement, and refining it over `Link`'s
+                            // replaces the thickness `Link` set with the 0px default. Setting
+                            // only the colour is how the underline goes missing entirely.
+                            .text_decoration_1()
+                            .child(
+                                // A live progress line takes the row over while the run is going.
+                                self.progress
+                                    .get(&id)
+                                    .cloned()
+                                    .unwrap_or_else(|| status_text(status)),
+                            )
+                            .on_click(cx.listener(move |view, _, _, cx| {
+                                view.open_log_viewer(task_id, id, cx)
+                            })),
                     ),
             )
             .child(

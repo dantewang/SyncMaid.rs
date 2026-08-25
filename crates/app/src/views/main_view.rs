@@ -365,6 +365,7 @@ impl MainView {
         };
 
         let request = LogRequest {
+            task_id,
             task_name: task.name.clone(),
             destination_name: destination.name.clone(),
             log_path: self.workspace.log_path(),
@@ -754,21 +755,22 @@ fn log_destination(task: &SyncTask, status: &DestinationSyncStatus) {
         .find(|destination| destination.id == status.destination_id)
         .map_or("?", |destination| destination.name.as_str());
 
-    // Through `destination_tag` rather than spelled out again: this opening is also the needle
+    // Through `DestinationTag` rather than spelled out again: this opening is also the needle
     // the log window searches on, and the two drifting apart is a window that silently finds
-    // nothing.
-    let tag = logging::destination_tag(&task.name, name);
+    // nothing. The task's id rides along because the two names do not identify a destination.
+    let tag = logging::DestinationTag::new(task.id, &task.name, name);
+    let prefix = tag.line_prefix();
 
     match status.outcome {
         SyncOutcome::Failed | SyncOutcome::NeedsConfirmation => tracing::warn!(
             "{}: {:?} · {}",
-            tag,
+            prefix,
             status.outcome,
             status.error.as_deref().unwrap_or("")
         ),
         _ => tracing::info!(
             "{}: {:?} · {} copied, {} in use",
-            tag,
+            prefix,
             status.outcome,
             status.files_copied,
             status.files_deferred

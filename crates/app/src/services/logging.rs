@@ -2,14 +2,18 @@
 //!
 //! One file beside the config, rolled at ~5 MB with a single previous copy kept. It is the run
 //! history the UI does not show — the destination rows only display the latest result — so its
-//! format matches the C# build's line for line, and a log from either build reads the same.
+//! shape follows the C# build's, and a log holding lines from both builds reads as one file.
+//!
+//! One deliberate divergence: a run line names its task's id as well as its name. The names
+//! alone do not identify a destination, and the window that reads these lines back has to be
+//! able to. Lines without it still read, and are still found — see [`DestinationTag`].
 //!
 //! Logging never throws into the app. An I/O failure here is swallowed, which is the one
 //! sanctioned exception to "never swallow an exception": there is nowhere better to report it,
 //! and a full disk must not take the app down with it.
 //!
 //! The log is read back as well as written: a destination's status text opens a window onto its
-//! own lines. [`destination_tag`] is what makes that possible, and it lives here rather than
+//! own lines. [`DestinationTag`] is what makes that possible, and it lives here rather than
 //! beside the reader because the two have to agree on one sentence forever — a wording changed
 //! at one end and not the other quietly stops matching every line already on disk.
 
@@ -23,26 +27,73 @@ use tracing::{Event, Level, Subscriber};
 use tracing_subscriber::fmt::format::Writer;
 use tracing_subscriber::fmt::{FmtContext, FormatEvent, FormatFields};
 use tracing_subscriber::registry::LookupSpan;
+use uuid::Uuid;
 
 /// Roll once the file passes this, keeping one previous copy.
 const MAX_BYTES: u64 = 5 * 1024 * 1024;
 
-/// The needle that finds one destination's lines — and the opening of every line about it.
+/// How one destination's lines open — in both spellings the log has ever used.
 ///
-/// `Sync 'Photos' → 'NAS backup'`. Both names, because a destination name is only unique inside
-/// its task: two tasks may each have a "NAS backup". Two tasks that share a name *and* have a
-/// same-named destination still collide, which is the price of a log whose format is a sentence
-/// rather than a record — and that format is what lets a file from either build read the same.
-pub fn destination_tag(task: &str, destination: &str) -> String {
-    format!("Sync '{task}' → '{destination}'")
+/// `Sync 'Photos' (1a2b…) → 'NAS backup'` is what a run writes now. The task's id is in it
+/// because the two names alone are not unique: a destination name is unique only inside its
+/// task, and two tasks may share a name. The id is, so the pair always is.
+///
+/// The name-only spelling is still matched. It is every line written before the id was in them,
+/// and every line the C# build writes, and dropping it would blank this window on upgrade day
+/// for history that is still on disk and still the reason the row says "Failed". It carries the
+/// ambiguity the id was added to fix — but only for lines already written, which is the half of
+/// the problem that cannot be fixed anyway.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DestinationTag {
+    current: String,
+    legacy: String,
 }
 
-/// The last `limit` lines mentioning `tag`, oldest first. Empty when there is no log yet.
+impl DestinationTag {
+    pub fn new(task_id: Uuid, task: &str, destination: &str) -> Self {
+        Self {
+            current: format!("Sync '{task}' ({task_id}) → '{destination}'"),
+            legacy: format!("Sync '{task}' → '{destination}'"),
+        }
+    }
+
+    /// The opening of every line a run writes about this destination.
+    pub fn line_prefix(&self) -> &str {
+        &self.current
+    }
+
+    /// Which spelling this line uses, or `None` when it is not about this destination.
+    ///
+    /// The two cannot both match: the id sits between the task name and the arrow, so a line
+    /// with one spelling contains neither the other's text nor a prefix of it.
+    fn matched_in(&self, line: &str) -> Option<&str> {
+        [&self.current, &self.legacy]
+            .into_iter()
+            .find(|tag| line.contains(tag.as_str()))
+            .map(String::as_str)
+    }
+}
+
+/// One log line, split into the parts the window shows in their own places.
+///
+/// The tag is taken off: the window names the task and the destination once in its header, so
+/// repeating them on all twenty rows would leave no width for what the rows actually say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogLine {
+    /// `2026-08-25 02:00:11.004`. Empty when the line does not begin with one.
+    pub time: String,
+    /// `INF`, `WRN`, `ERR` … Empty when the line has no level.
+    pub level: String,
+    /// What is left with the timestamp, the level, the target and the tag taken off.
+    pub message: String,
+}
+
+/// The last `limit` lines about `tag`, oldest first. Empty when there is no log yet.
 ///
 /// Reads whole files rather than seeking back from the end: matching lines are sparse and may be
 /// old, so a fixed tail of *bytes* would silently drop the very line being looked up. The roll
 /// caps each read at [`MAX_BYTES`], and this only runs on a click.
-pub fn tail_matching(path: &Path, tag: &str, limit: usize) -> Vec<String> {
+pub fn tail_matching(path: &Path, tag: &DestinationTag, limit: usize) -> Vec<LogLine> {
     // The previous file first, so what comes out is a true tail. The roll happens at a size
     // nobody chose, and the line explaining a failure is as likely to have just crossed it as not.
     let mut matched = matching_lines(&previous_path(path), tag);
@@ -54,7 +105,7 @@ pub fn tail_matching(path: &Path, tag: &str, limit: usize) -> Vec<String> {
 }
 
 /// One file's matching lines. A file that is not there has none, which is not an error.
-fn matching_lines(path: &Path, tag: &str) -> Vec<String> {
+fn matching_lines(path: &Path, tag: &DestinationTag) -> Vec<LogLine> {
     let Ok(bytes) = fs::read(path) else {
         return Vec::new();
     };
@@ -62,9 +113,30 @@ fn matching_lines(path: &Path, tag: &str) -> Vec<String> {
     // the reader the nineteen good lines above it.
     String::from_utf8_lossy(&bytes)
         .lines()
-        .filter(|line| line.contains(tag))
-        .map(str::to_owned)
+        .filter_map(|line| Some(split(line, tag.matched_in(line)?)))
         .collect()
+}
+
+/// Takes a line apart, given the tag that matched it.
+///
+/// Anything that will not parse is shown whole rather than shown wrong: a log line is evidence,
+/// and an untidy row costs less than one with the wrong half trimmed off it.
+fn split(line: &str, tag: &str) -> LogLine {
+    // `2026-08-25 02:00:11.004 [WRN] main_view: {tag}: Failed · access denied`
+    let (time, level) = match line.split_once(" [") {
+        Some((time, rest)) => (time, rest.split_once(']').map_or("", |(level, _)| level)),
+        None => ("", ""),
+    };
+    let message = line
+        .split_once(tag)
+        .and_then(|(_, rest)| rest.strip_prefix(": "))
+        .unwrap_or(line);
+
+    LogLine {
+        time: time.to_owned(),
+        level: level.to_owned(),
+        message: message.to_owned(),
+    }
 }
 
 /// Where the roll puts the previous copy. Shared, so the reader looks where the writer wrote.
@@ -88,7 +160,7 @@ pub fn install(log_path: &Path) {
     let _ = tracing::subscriber::set_global_default(subscriber);
 }
 
-/// `2026-08-09 02:00:12.418 [INF] TaskNode: Sync 'Photos' → 'NAS backup': Success · 128 copied`
+/// `2026-08-09 02:00:12.418 [INF] main_view: Sync 'Photos' (1a2b…) → 'NAS backup': Success · …`
 struct SyncMaidFormat;
 
 impl<S, N> FormatEvent<S, N> for SyncMaidFormat
@@ -264,58 +336,135 @@ mod tests {
         );
     }
 
+    const PHOTOS: Uuid = Uuid::from_u128(0x1a2b);
+    const DOCS: Uuid = Uuid::from_u128(0x3c4d);
+
+    fn tag_for(task_id: Uuid, task: &str, destination: &str) -> DestinationTag {
+        DestinationTag::new(task_id, task, destination)
+    }
+
+    fn messages(lines: &[LogLine]) -> Vec<&str> {
+        lines.iter().map(|line| line.message.as_str()).collect()
+    }
+
     /// The one line that has to keep matching what `log_destination` writes.
     #[test]
     fn the_tag_is_the_opening_of_a_real_log_line() {
-        let line = "2026-08-09 02:00:12.418 [WRN] main_view:                     Sync 'Photos' → 'NAS backup': Failed · access denied";
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
+        let line = format!(
+            "2026-08-09 02:00:12.418 [WRN] main_view: {}: Failed · access denied",
+            tag.line_prefix()
+        );
 
-        assert!(line.contains(&destination_tag("Photos", "NAS backup")));
+        assert_eq!(Some(tag.line_prefix()), tag.matched_in(&line));
+    }
+
+    /// The whole reason the id is in the line: the two names alone do not identify a
+    /// destination, because a destination name is unique only inside its task.
+    #[test]
+    fn two_tasks_with_one_name_no_longer_read_each_others_lines() {
+        let mine = tag_for(PHOTOS, "Photos", "NAS backup");
+        let theirs = tag_for(DOCS, "Photos", "NAS backup");
+        let line = format!(
+            "[INF] main_view: {}: Success · 1 copied",
+            theirs.line_prefix()
+        );
+
+        assert!(mine.matched_in(&line).is_none(), "{line}");
+        assert_eq!(Some(theirs.line_prefix()), theirs.matched_in(&line));
+    }
+
+    /// Lines written before the id existed — and every line the C# build writes — still read.
+    /// Losing them would blank this window on upgrade day for history that still explains why
+    /// the row says "Failed".
+    #[test]
+    fn lines_written_without_a_task_id_are_still_found() {
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
+        let line = "2026-08-09 02:00:12.418 [WRN] main_view: \
+                    Sync 'Photos' → 'NAS backup': Failed · access denied";
+
+        assert_eq!(Some("Sync 'Photos' → 'NAS backup'"), tag.matched_in(line));
     }
 
     #[test]
-    fn only_this_destinations_lines_come_back_and_only_the_last_few() {
+    fn only_this_destinations_lines_come_back() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("syncmaid.log");
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
         fs::write(
             &path,
-            "Sync 'Photos' → 'NAS backup': Success · 1
-             Sync 'Photos' → 'USB stick': Success · 2
-             Sync 'Docs' → 'NAS backup': Success · 3
-             Sync 'Photos' → 'NAS backup': Failed · access denied
-",
+            format!(
+                "{}: Success · 1 copied\n\
+                 {}: Success · 2 copied\n\
+                 {}: Success · 3 copied\n\
+                 {}: Failed · access denied\n",
+                tag.line_prefix(),
+                tag_for(PHOTOS, "Photos", "USB stick").line_prefix(),
+                tag_for(DOCS, "Docs", "NAS backup").line_prefix(),
+                tag.line_prefix(),
+            ),
         )
         .unwrap();
 
-        let lines = tail_matching(&path, &destination_tag("Photos", "NAS backup"), 20);
+        let lines = tail_matching(&path, &tag, 20);
 
-        assert_eq!(2, lines.len(), "{lines:?}");
-        assert!(lines[0].ends_with("Success · 1"), "{lines:?}");
-        assert!(
-            lines[1].ends_with("access denied"),
-            "oldest first: {lines:?}"
+        assert_eq!(
+            vec!["Success · 1 copied", "Failed · access denied"],
+            messages(&lines),
+            "oldest first, and only this pair"
         );
+    }
+
+    /// The header names the task and the destination once, so the rows must not repeat them.
+    #[test]
+    fn a_line_is_split_into_its_time_its_level_and_what_it_actually_says() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("syncmaid.log");
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
+        fs::write(
+            &path,
+            format!(
+                "2026-08-25 02:00:11.004 [WRN] main_view: {}: Failed · access denied\n",
+                tag.line_prefix()
+            ),
+        )
+        .unwrap();
+
+        let lines = tail_matching(&path, &tag, 20);
+
+        assert_eq!(1, lines.len());
+        assert_eq!("2026-08-25 02:00:11.004", lines[0].time);
+        assert_eq!("WRN", lines[0].level);
+        assert_eq!("Failed · access denied", lines[0].message);
+    }
+
+    /// A line that will not parse is shown whole rather than shown wrong.
+    #[test]
+    fn a_line_that_does_not_parse_keeps_all_of_itself() {
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
+        let line = format!("{} something else entirely", tag.line_prefix());
+
+        let split = split(&line, tag.line_prefix());
+
+        assert_eq!("", split.time);
+        assert_eq!(line, split.message);
     }
 
     #[test]
     fn the_limit_keeps_the_newest_lines_not_the_oldest() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("syncmaid.log");
-        let tag = destination_tag("Photos", "NAS backup");
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
         let body: String = (0..30)
-            .map(|run| {
-                format!(
-                    "{tag}: Success · {run}
-"
-                )
-            })
+            .map(|run| format!("{}: Success · {run}\n", tag.line_prefix()))
             .collect();
         fs::write(&path, body).unwrap();
 
         let lines = tail_matching(&path, &tag, 20);
 
         assert_eq!(20, lines.len());
-        assert!(lines[0].ends_with("· 10"), "{}", lines[0]);
-        assert!(lines[19].ends_with("· 29"), "{}", lines[19]);
+        assert_eq!("Success · 10", lines[0].message);
+        assert_eq!("Success · 29", lines[19].message);
     }
 
     /// A line that has just rolled off is exactly the one a failure is being looked up for.
@@ -323,38 +472,29 @@ mod tests {
     fn the_tail_reaches_back_across_the_roll() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("syncmaid.log");
-        let tag = destination_tag("Photos", "NAS backup");
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
         fs::write(
             directory.path().join("syncmaid.log.1"),
-            format!(
-                "{tag}: yesterday
-"
-            ),
+            format!("{}: yesterday\n", tag.line_prefix()),
         )
         .unwrap();
-        fs::write(
-            &path,
-            format!(
-                "{tag}: today
-"
-            ),
-        )
-        .unwrap();
+        fs::write(&path, format!("{}: today\n", tag.line_prefix())).unwrap();
 
         let lines = tail_matching(&path, &tag, 20);
 
-        assert_eq!(2, lines.len(), "{lines:?}");
-        assert!(
-            lines[0].ends_with("yesterday"),
-            "the older file comes first: {lines:?}"
+        assert_eq!(
+            vec!["yesterday", "today"],
+            messages(&lines),
+            "the older file comes first"
         );
     }
 
     #[test]
     fn no_log_file_yet_is_no_lines_rather_than_an_error() {
         let directory = tempfile::tempdir().unwrap();
+        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
 
-        assert!(tail_matching(&directory.path().join("nothing.log"), "Sync", 20).is_empty());
+        assert!(tail_matching(&directory.path().join("nothing.log"), &tag, 20).is_empty());
     }
 
     #[test]

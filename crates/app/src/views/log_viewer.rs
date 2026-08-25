@@ -22,13 +22,15 @@ use gpui::{
     SharedString, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
+use gpui_component::scroll::{Scrollbar, ScrollbarShow};
 use gpui_component::{
     h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
 };
+use uuid::Uuid;
 
 use crate::components::Glyph;
 use crate::platform::shell_open;
-use crate::services::logging;
+use crate::services::logging::{self, DestinationTag, LogLine};
 use crate::strings;
 
 /// How many of a destination's lines the window shows. Enough to see a failure and the runs
@@ -42,6 +44,7 @@ const WINDOW_MIN_SIZE: (f32, f32) = (420., 260.);
 /// Which destination's lines to show, and where to read them from.
 #[derive(Debug, Clone)]
 pub struct LogRequest {
+    pub task_id: Uuid,
     pub task_name: String,
     pub destination_name: String,
     pub log_path: PathBuf,
@@ -52,6 +55,10 @@ impl LogRequest {
     /// this window has nothing else to say which of them it is about.
     fn window_title(&self) -> String {
         strings::log_viewer_window_title_format(&self.destination_name)
+    }
+
+    fn tag(&self) -> DestinationTag {
+        DestinationTag::new(self.task_id, &self.task_name, &self.destination_name)
     }
 }
 
@@ -124,7 +131,7 @@ pub fn open(request: LogRequest, cx: &mut App) -> Option<OpenLogViewer> {
 pub struct LogViewer {
     request: LogRequest,
     /// The lines as they were last read, oldest first.
-    lines: Vec<String>,
+    lines: Vec<LogLine>,
     /// Whether there is a file to hand to the editor at all. Read alongside the lines rather
     /// than at render time, which happens every frame.
     log_exists: bool,
@@ -157,9 +164,14 @@ impl LogViewer {
 
     /// The one place the file is read. Everything on screen comes from here.
     fn reread(&mut self) {
-        let tag = logging::destination_tag(&self.request.task_name, &self.request.destination_name);
-        self.lines = logging::tail_matching(&self.request.log_path, &tag, TAIL_LINES);
+        self.lines =
+            logging::tail_matching(&self.request.log_path, &self.request.tag(), TAIL_LINES);
         self.log_exists = self.request.log_path.exists();
+        // The newest line is the one the status text was summarising, so it is the one that has
+        // to be in view. Oldest first is the right order to read a history in and the wrong end
+        // to open it at. Resolved in the next prepaint, against sizes measured there, so this
+        // works on the very first frame as well as on a Refresh.
+        self.scroll.scroll_to_bottom();
     }
 
     /// Hands the whole file to whatever the user opens `.log` files with.
@@ -226,39 +238,99 @@ impl LogViewer {
                     .text_ellipsis()
                     .child(self.pair()),
             )
+            // The task's id. Two tasks may share a name, so this is the only thing on screen
+            // that says which one these lines came from — and it is what the lines themselves
+            // are matched on. Monospace and unlabelled: it reads as the identifier it is.
+            .child(
+                div()
+                    .text_xs()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_color(cx.theme().muted_foreground.opacity(0.7))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(self.request.task_id.to_string()),
+            )
     }
 
+    /// The lines, as a timestamp column and the message beside it.
+    ///
+    /// The tag is gone from every row: the heading above names the task and the destination
+    /// once, and repeating them twenty times would leave no width for what the rows say.
     fn render_lines(&self, cx: &App) -> impl IntoElement {
-        let mono = cx.theme().mono_font_family.clone();
+        let rows = self
+            .lines
+            .iter()
+            .map(|line| self.render_line(line, cx))
+            .collect::<Vec<_>>();
 
+        // The scrolling box sits inside a relative wrapper because `Scrollbar` lays itself out
+        // absolutely over its parent — as a child of the scroll area it would scroll away with
+        // the content it is measuring.
         div()
-            .id("log-lines")
-            .track_scroll(&self.scroll)
+            .relative()
             .flex()
             .flex_col()
             .flex_1()
             .min_h_0()
-            // Vertical only, and lines wrap. A failure line ends in the engine's own sentence,
-            // which is the half being looked up — clipping it off the right edge hides exactly
-            // what the window was opened for, and a horizontal scrollbar makes finding it work.
-            // The cost is that a wrapped line breaks the timestamp column, which is cheap.
-            .overflow_y_scroll()
-            .p(px(10.))
             .rounded(cx.theme().radius)
             .bg(cx.theme().muted)
-            .text_sm()
-            .font_family(mono)
-            .when(self.lines.is_empty(), |element| {
-                element.child(
-                    div()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(strings::log_viewer_empty()),
-                )
-            })
-            .children(
-                self.lines
-                    .iter()
-                    .map(|line| div().py(px(1.)).child(SharedString::from(line.clone()))),
+            .child(
+                div()
+                    .id("log-lines")
+                    .track_scroll(&self.scroll)
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .size_full()
+                    // Vertical only, and messages wrap. A failure line ends in the engine's own
+                    // sentence, which is the half being looked up — clipping it off the right
+                    // edge hides exactly what the window was opened for.
+                    .overflow_y_scroll()
+                    .p(px(10.))
+                    .text_sm()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .when(self.lines.is_empty(), |element| {
+                        element.child(
+                            div()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(strings::log_viewer_empty()),
+                        )
+                    })
+                    .children(rows),
+            )
+            // `Always` rather than the theme's default, which fades the bar out two seconds
+            // after the last scroll. It still hides itself when everything fits, so what is
+            // left is exactly the signal wanted: a bar means there is more above or below.
+            .child(Scrollbar::vertical(&self.scroll).scrollbar_show(ScrollbarShow::Always))
+    }
+
+    fn render_line(&self, line: &LogLine, cx: &App) -> impl IntoElement {
+        // A failure is what these twenty lines are usually being read for, so it carries the
+        // same colour it has in the row that sent the user here.
+        let color = match line.level.as_str() {
+            "ERR" => cx.theme().danger,
+            "WRN" => cx.theme().warning,
+            _ => cx.theme().foreground,
+        };
+
+        h_flex()
+            // Top, not centre: a wrapped message must not drag its timestamp down the rows.
+            .items_start()
+            .gap(px(10.))
+            .child(
+                div()
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(SharedString::from(line.time.clone())),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_color(color)
+                    .child(SharedString::from(line.message.clone())),
             )
     }
 

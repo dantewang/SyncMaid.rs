@@ -45,7 +45,7 @@ impl SettingsView {
             auto_start_state: auto_start.state(),
             auto_start,
             data_directory,
-            version: env!("SYNCMAID_VERSION"),
+            version: env!("CARGO_PKG_VERSION"),
         }
     }
 
@@ -331,9 +331,9 @@ mod tests {
 
     #[test]
     fn the_version_shown_is_the_one_that_was_built() {
-        // Stamped by build.rs from the git tag, so a release needs no file edited to match.
+        // `Cargo.toml` is the one place a version is written; everything else reads it.
         let view = SettingsView::new(AppSettings::default(), PathBuf::from(r"C:\app\Data"));
-        assert_eq!(env!("SYNCMAID_VERSION"), view.version);
+        assert_eq!(env!("CARGO_PKG_VERSION"), view.version);
     }
 
     #[test]

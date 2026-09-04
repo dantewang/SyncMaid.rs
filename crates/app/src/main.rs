@@ -75,6 +75,14 @@ fn main() {
                 open_main_window(workspace, Arc::clone(&file_system), start_minimized, cx)
                     .expect("open the main window");
             close_to_tray(window, view.clone(), cx);
+            // Before anything can hide the window: gpui un-hides it whenever a display drops,
+            // and a monitor going to sleep is a display dropping.
+            let _ = window.update(cx, |_, window, _| {
+                platform::window_visibility::keep_hidden_across_display_changes(
+                    window,
+                    start_minimized,
+                );
+            });
 
             if let Some(dialog) = show.clone() {
                 let _ = window.update(cx, |_, window, cx| {

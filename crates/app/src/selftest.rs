@@ -36,6 +36,21 @@ pub fn run_tray_gate(window: WindowHandle<Root>, cx: &mut App) {
         assert!(!visible, "the window was still visible after hiding it");
         println!("[self-test] window hidden; the message loop is still ours");
 
+        // Waking a monitor looks like a display disconnect, and gpui answers those by showing
+        // the window. Nobody would find that by hand without unplugging something.
+        let provoked = window
+            .update(cx, |_, window, _| {
+                window_visibility::simulate_display_disconnect(window)
+            })
+            .expect("provoke a display change");
+        assert!(provoked, "could not reach the native window handle");
+
+        let visible = window
+            .update(cx, |_, window, _| window_visibility::is_visible(window))
+            .expect("read window visibility");
+        assert!(!visible, "a display change brought the hidden window back");
+        println!("[self-test] window stayed hidden across a display change");
+
         // The interesting part: does anything still run while nothing is on screen?
         let mut ticks = 0;
         let deadline = std::time::Instant::now() + HIDDEN_FOR;

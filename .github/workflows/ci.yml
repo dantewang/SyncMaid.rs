@@ -6,7 +6,7 @@ name: CI
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
 
 permissions:
@@ -30,9 +30,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          # build.rs derives the version from the nearest tag.
-          fetch-depth: 0
 
       - name: Install the pinned toolchain
         shell: pwsh

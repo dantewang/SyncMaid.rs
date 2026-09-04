@@ -33,8 +33,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0  # build.rs derives the version from the tag history
+
+      # `Cargo.toml` declares the version; the tag only points at the commit that declared it.
+      # Neither is derived from the other, so the one thing that can go wrong is the two
+      # disagreeing — refuse to ship rather than ship something mislabelled.
+      - name: Check the tag against the declared version
+        shell: pwsh
+        run: |
+          $metadata = cargo metadata --format-version 1 --no-deps | ConvertFrom-Json
+          $declared = ($metadata.packages | Where-Object name -eq syncmaid).version
+          $tagged = '${{ github.ref_name }}'.TrimStart('v')
+          if ($declared -ne $tagged) {
+            throw "tag v$tagged does not match Cargo.toml ($declared): bump the manifest, then re-tag"
+          }
 
       - name: Build (x86_64-pc-windows-msvc)
         run: cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid-rs

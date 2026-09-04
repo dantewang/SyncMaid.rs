@@ -78,7 +78,7 @@ filesystems cannot quietly disagree.
 ## Publish a user-ready build
 
 ```powershell
-cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid
+cargo build --release --target x86_64-pc-windows-msvc -p syncmaid --bin SyncMaid-rs
 ```
 
 The executable lands in `target/x86_64-pc-windows-msvc/release/SyncMaid-rs.exe` and **is the whole
@@ -86,7 +86,25 @@ app**: the icon, the string tables and the C runtime are all linked into it, so 
 imports ships with Windows itself. Nothing to install, nothing to copy alongside it — hand
 someone that one file and it runs.
 
-Tagging `v*` runs the release workflow, which packages exactly that, publishes a SHA-256
-sidecar beside it, and attests the build's provenance.
+### Cutting a release
+
+`Cargo.toml` is the only place a version is written. `[workspace.package] version` is what the
+Settings screen shows, what Explorer reads off the executable, and what the release is named
+after — the tag records which commit declared it, never the other way round.
+
+```powershell
+# Bump [workspace.package] version in Cargo.toml, then:
+cargo check                     # refresh Cargo.lock with the new version
+git commit -am "chore: release 1.2.3"
+git tag v1.2.3
+git push origin master --tags
+```
+
+The tag runs the release workflow, which refuses to build unless the tag and the manifest
+agree, then packages exactly the executable above, publishes a SHA-256 sidecar beside it, and
+attests the build's provenance.
+
+`cargo install cargo-release` collapses that block into `cargo release 1.2.3` if the manual
+steps start to grate.
 
 

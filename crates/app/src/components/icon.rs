@@ -19,7 +19,6 @@ pub enum Glyph {
     // --- Navigation and structure ---
     Back,
     ChevronDown,
-    ChevronLeft,
     ChevronRight,
     ArrowRight,
     MoveUp,
@@ -80,7 +79,6 @@ impl IconNamed for Glyph {
         match self {
             Self::Back => IconName::ArrowLeft.path(),
             Self::ChevronDown => IconName::ChevronDown.path(),
-            Self::ChevronLeft => IconName::ChevronLeft.path(),
             Self::ChevronRight => IconName::ChevronRight.path(),
             Self::ArrowRight => IconName::ArrowRight.path(),
             Self::MoveUp => IconName::ArrowUp.path(),
@@ -161,10 +159,9 @@ mod tests {
         assert_eq!(paths.len(), unique.len(), "{paths:?}");
     }
 
-    const ALL: [Glyph; 34] = [
+    const ALL: [Glyph; 33] = [
         Glyph::Back,
         Glyph::ChevronDown,
-        Glyph::ChevronLeft,
         Glyph::ChevronRight,
         Glyph::ArrowRight,
         Glyph::MoveUp,

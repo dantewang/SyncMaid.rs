@@ -453,7 +453,7 @@ impl DestinationEditor {
                         "strategy-mirror",
                         Glyph::Sync,
                         strings::enum_sync_strategy_mirror(),
-                        strings::dest_editor_mirror_desc2(),
+                        strings::dest_editor_mirror_desc(),
                     )
                     .selected(strategy == SyncStrategy::Mirror)
                     .on_click(cx.listener(|editor, _, _, cx| {

@@ -29,6 +29,5 @@ pub use provider::{
     DestinationCapabilities, DestinationProvider, DestinationProviderFactory,
     LocalDestinationProvider, LocalDestinationProviderFactory, LocalSourceFile, SourceFile,
 };
-pub use retry::{execute as retry, execute_with as retry_with, RetryOptions};
+pub use retry::{execute as retry, RetryOptions};
 pub use routing::MoveRouting;
-pub use safe_transfer::copy as safe_copy;

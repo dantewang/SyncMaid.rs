@@ -15,7 +15,9 @@ mod workspace;
 
 pub use filters::{FilterEntry, FilterGroup, FilterKind, FilterModel, Summary};
 pub use health::health_of;
-pub use overlap::{destination_conflict, sibling_conflict, source_conflict, Conflict};
+pub use overlap::{
+    destination_conflict, run_conflict, sibling_conflict, source_conflict, Conflict,
+};
 pub use preview::{scan, ContestedFile, DestinationPreview, ExtensionChip, Scan};
 pub use routing::subsumes;
 pub use run_gate::{RunGate, RunStart};

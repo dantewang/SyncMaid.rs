@@ -29,7 +29,7 @@ use uuid::Uuid;
 
 use crate::components::Glyph;
 use crate::services::logging;
-use crate::state::{health_of, RunGate, TriggerEvent, TriggerHost, Workspace};
+use crate::state::{health_of, run_conflict, RunGate, TriggerEvent, TriggerHost, Workspace};
 use crate::strings;
 use crate::theme;
 use crate::views::dialogs::{
@@ -643,6 +643,20 @@ impl MainView {
         let Some(task) = self.workspace.task(task_id).cloned() else {
             return;
         };
+
+        // Task shape across the list: no two tasks share a source, and no two share a
+        // destination. The editors block a save that would break that, but the rule is a fact
+        // about the *list* — the engine is handed one task and cannot see it — so hand-edited
+        // config reaches here instead. Refuse before the source is so much as walked.
+        if let Some(conflict) = run_conflict(self.workspace.tasks(), &task) {
+            self.refuse_run(
+                &task,
+                strings::task_overlap_refused_format(&conflict.task_name),
+                cx,
+            );
+            return;
+        }
+
         let gate = self.gate_for(task_id);
         let engine = Arc::clone(&self.engine);
         let before = self.workspace.status_snapshot(&task);
@@ -718,6 +732,31 @@ impl MainView {
             }
         })
         .detach();
+    }
+
+    /// Reports a refusal the way the engine reports its own: every destination of the task
+    /// fails with the same sentence, so the card explains itself wherever the user looks.
+    ///
+    /// Nothing is read and nothing is written — the refusal is the point. It is logged, and it
+    /// lands in `status.json` like any other outcome, so the next run replaces it once the
+    /// layout is fixed.
+    fn refuse_run(&mut self, task: &SyncTask, reason: String, cx: &mut Context<Self>) {
+        let statuses: Vec<DestinationSyncStatus> = task
+            .destinations
+            .iter()
+            .map(|destination| {
+                let mut status = DestinationSyncStatus::new(destination.id, SyncOutcome::Failed);
+                status.last_run = Some(Local::now().into());
+                status.error = Some(reason.clone());
+                status
+            })
+            .collect();
+
+        for status in &statuses {
+            log_destination(task, status);
+        }
+        self.workspace.apply_statuses(statuses);
+        cx.notify();
     }
 
     fn stop_task(&mut self, task_id: Uuid, cx: &mut Context<Self>) {

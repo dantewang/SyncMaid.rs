@@ -90,6 +90,21 @@ pub fn sibling_conflict(task: &SyncTask) -> Option<(String, String)> {
     None
 }
 
+/// The other task, if any, whose paths mean `task` must not run.
+///
+/// The editors already block a save that would create the overlap, but this rule is a fact
+/// about the *list*, and the engine only ever sees one task — so it can re-check a task's own
+/// shape at run start and cannot re-check this. Hand-edited config, and config written before
+/// the editors enforced it, arrive here instead. Same-task destination overlap is left to the
+/// engine, which names both destinations rather than a task.
+pub fn run_conflict(tasks: &[SyncTask], task: &SyncTask) -> Option<Conflict> {
+    source_conflict(tasks, Some(task.id), &task.source_path).or_else(|| {
+        task.destinations.iter().find_map(|destination| {
+            destination_conflict(tasks, Some(task.id), None, destination.local_path())
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use syncmaid_core::filtering::FilterRule;
@@ -204,5 +219,68 @@ mod tests {
                 "{partial:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_run_is_refused_when_either_end_overlaps_another_task() {
+        let photos = task("Photos", r"C:\Photos", &[r"N:\backup"]);
+
+        let shared_source = task("Copy of photos", r"C:\Photos\2024", &[r"N:\elsewhere"]);
+        assert_eq!(
+            Some("Photos".to_owned()),
+            run_conflict(&[photos.clone(), shared_source.clone()], &shared_source)
+                .map(|c| c.task_name)
+        );
+
+        let shared_destination = task("Second backup", r"C:\Videos", &[r"N:\backup\inner"]);
+        assert_eq!(
+            Some("Photos".to_owned()),
+            run_conflict(
+                &[photos.clone(), shared_destination.clone()],
+                &shared_destination
+            )
+            .map(|c| c.task_name)
+        );
+    }
+
+    #[test]
+    fn a_run_that_shares_nothing_is_not_refused() {
+        let photos = task("Photos", r"C:\Photos", &[r"N:\backup"]);
+        let videos = task("Videos", r"C:\Videos", &[r"N:\videos"]);
+
+        assert_eq!(
+            None,
+            run_conflict(&[photos.clone(), videos.clone()], &videos)
+        );
+        assert_eq!(
+            None,
+            run_conflict(&[photos.clone(), videos], &photos),
+            "a task in the list it is checked against is not its own conflict"
+        );
+    }
+
+    #[test]
+    fn a_run_of_a_chained_task_is_allowed() {
+        let sorter = task("Sorter", r"C:\Downloads", &[r"D:\Filed"]);
+        let backup = task("Backup", r"D:\Filed", &[r"N:\archive"]);
+
+        assert_eq!(
+            None,
+            run_conflict(&[sorter.clone(), backup.clone()], &backup),
+            "chaining is the layout the trigger coalescing and idempotent planning exist for"
+        );
+        assert_eq!(None, run_conflict(&[sorter.clone(), backup], &sorter));
+    }
+
+    #[test]
+    fn two_destinations_of_one_task_are_left_to_the_engine() {
+        let overlapping = task("Photos", r"C:\Photos", &[r"N:\backup", r"N:\backup\inner"]);
+
+        assert_eq!(
+            None,
+            run_conflict(std::slice::from_ref(&overlapping), &overlapping),
+            "the engine refuses this one, and names both destinations rather than a task"
+        );
+        assert!(sibling_conflict(&overlapping).is_some());
     }
 }

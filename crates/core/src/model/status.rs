@@ -43,7 +43,11 @@ pub struct DestinationSyncStatus {
     #[serde(default)]
     pub files_copied: i32,
 
-    /// Why the last run failed, if it did. English — this comes from the engine.
+    /// Why the last run failed, if it did.
+    ///
+    /// English whenever it comes from the engine, which carries no display strings. The app
+    /// also refuses runs the engine cannot see — a task overlapping another task — and writes
+    /// its own localized sentence here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 

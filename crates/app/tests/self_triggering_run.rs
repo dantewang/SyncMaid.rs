@@ -21,10 +21,14 @@ use syncmaid_core::triggers::{
 };
 use tempfile::TempDir;
 
-/// Long enough that a burst collapses, short enough that the test is not a nap.
-const SETTLE: Duration = Duration::from_millis(300);
+/// Long enough that a burst collapses, and — the part that matters — comfortably longer than a
+/// run takes. A quiet period that expires *during* the first run splits that run's own deletions
+/// across two settled bursts, so the watcher walks a half-emptied tree, fires, and then fires
+/// again for the rest: two follow-ups instead of one, decided by how badly the machine stalled
+/// rather than by anything in the design. Keep this well above a run.
+const SETTLE: Duration = Duration::from_secs(1);
 /// Well past the point where a cascade would have shown itself.
-const OBSERVE: Duration = Duration::from_millis(2500);
+const OBSERVE: Duration = Duration::from_secs(10);
 
 struct Harness {
     engine: SyncEngine,
@@ -121,7 +125,7 @@ fn settle(harness: &Harness) {
         if now != last {
             last = now;
             unchanged_since = Instant::now();
-        } else if unchanged_since.elapsed() > SETTLE * 4 {
+        } else if unchanged_since.elapsed() > SETTLE * 3 {
             return; // Quiet for well over a settle window: nothing more is coming.
         }
     }

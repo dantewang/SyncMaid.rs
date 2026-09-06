@@ -215,16 +215,50 @@ mod tests {
         (Arc::new(observer), receiver)
     }
 
-    /// Fires `soon` once, then never again — the shape of "one occurrence, then quiet".
-    struct FiresOnce {
+    /// One occurrence at a fixed moment, then quiet — the shape of "one run, then nothing".
+    ///
+    /// The moment is pinned on the first question and handed back to every later one, the way a
+    /// real schedule answers. The worker re-arms after an early or spurious wakeup by asking
+    /// again, and a stub that invented a fresh occurrence per question would push the run a day
+    /// out and lose it.
+    struct FiresSoon {
         delay: chrono::Duration,
+        occurrence: Mutex<Option<DateTime<Local>>>,
+    }
+
+    impl Schedule for FiresSoon {
+        fn next_occurrence_after(&self, after: DateTime<Local>) -> Option<DateTime<Local>> {
+            let mut occurrence = lock(&self.occurrence);
+            let fires_at = *occurrence.get_or_insert(after + self.delay);
+            if after < fires_at {
+                Some(fires_at)
+            } else {
+                // Asked again once the occurrence has passed: far enough away that the worker
+                // just parks, so a run that already fired is never handed out twice.
+                Some(after + chrono::Duration::hours(24))
+            }
+        }
+    }
+
+    fn fires_soon(delay_ms: i64) -> Arc<FiresSoon> {
+        Arc::new(FiresSoon {
+            delay: chrono::Duration::milliseconds(delay_ms),
+            occurrence: Mutex::new(None),
+        })
+    }
+
+    /// One occurrence that is already overdue when the worker first asks — the shape of a machine
+    /// waking from sleep. The worker fires straight away without re-arming, so answering by count
+    /// is safe here.
+    struct FiresLate {
+        overdue_by: chrono::Duration,
         asked: AtomicUsize,
     }
 
-    impl Schedule for FiresOnce {
+    impl Schedule for FiresLate {
         fn next_occurrence_after(&self, after: DateTime<Local>) -> Option<DateTime<Local>> {
             if self.asked.fetch_add(1, Ordering::SeqCst) == 0 {
-                Some(after + self.delay)
+                Some(after - self.overdue_by)
             } else {
                 // Far enough away that the worker just parks.
                 Some(after + chrono::Duration::hours(24))
@@ -232,9 +266,9 @@ mod tests {
         }
     }
 
-    fn fires_once(delay_ms: i64) -> Arc<FiresOnce> {
-        Arc::new(FiresOnce {
-            delay: chrono::Duration::milliseconds(delay_ms),
+    fn fires_late(overdue_ms: i64) -> Arc<FiresLate> {
+        Arc::new(FiresLate {
+            overdue_by: chrono::Duration::milliseconds(overdue_ms),
             asked: AtomicUsize::new(0),
         })
     }
@@ -259,7 +293,7 @@ mod tests {
     #[test]
     fn a_schedule_fires_when_its_occurrence_arrives() {
         let (observer, notifications) = channel_observer();
-        let mut source = ScheduledTriggerSource::with_schedule(fires_once(60), observer);
+        let mut source = ScheduledTriggerSource::with_schedule(fires_soon(60), observer);
 
         source.start().unwrap();
         let fired = notifications.recv_timeout(Duration::from_secs(5));
@@ -273,7 +307,7 @@ mod tests {
     fn an_occurrence_missed_while_the_machine_slept_fires_once_and_rearms_ahead() {
         let (observer, notifications) = channel_observer();
         // The occurrence is already in the past, as it would be after a laptop wakes up.
-        let mut source = ScheduledTriggerSource::with_schedule(fires_once(-90_000), observer);
+        let mut source = ScheduledTriggerSource::with_schedule(fires_late(90_000), observer);
 
         source.start().unwrap();
         let fired = notifications.recv_timeout(Duration::from_secs(5));
@@ -290,7 +324,7 @@ mod tests {
     #[test]
     fn stopping_before_an_occurrence_delivers_nothing() {
         let (observer, notifications) = channel_observer();
-        let mut source = ScheduledTriggerSource::with_schedule(fires_once(60_000), observer);
+        let mut source = ScheduledTriggerSource::with_schedule(fires_soon(60_000), observer);
 
         source.start().unwrap();
         source.stop();
@@ -312,7 +346,7 @@ mod tests {
             })
         };
 
-        let mut source = ScheduledTriggerSource::with_schedule(fires_once(40), observer);
+        let mut source = ScheduledTriggerSource::with_schedule(fires_soon(40), observer);
         source.start().unwrap();
 
         // Wait until the delivery is definitely running, then stop mid-flight.
@@ -330,7 +364,7 @@ mod tests {
     #[test]
     fn stopping_a_source_that_never_started_is_harmless() {
         let (observer, _) = channel_observer();
-        let mut source = ScheduledTriggerSource::with_schedule(fires_once(60_000), observer);
+        let mut source = ScheduledTriggerSource::with_schedule(fires_soon(60_000), observer);
 
         source.stop();
         source.stop();

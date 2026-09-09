@@ -7,8 +7,8 @@ use std::time::Duration;
 use chrono::{DateTime, FixedOffset, Local};
 
 use gpui::{
-    div, prelude::*, px, App, Context, Div, Entity, FontWeight, Hsla, Pixels, ScrollHandle,
-    SharedString, Stateful, Subscription, Window,
+    div, prelude::*, px, relative, App, Context, Div, Entity, FontWeight, Hsla, Pixels,
+    ScrollHandle, SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::link::Link;
@@ -971,6 +971,33 @@ impl MainView {
             )
     }
 
+    /// Three counts, beside the heading: tasks, destinations, and how many are running.
+    ///
+    /// They answer at a glance what the list would otherwise make you count, and the third is
+    /// the one that earns the other two — "is anything happening right now" is a question the
+    /// cards can only answer by being read.
+    fn render_tallies(&self, cx: &App) -> impl IntoElement {
+        let tasks = self.workspace.tasks();
+        let statuses = self.workspace.statuses();
+        let destinations: usize = tasks.iter().map(|task| task.destinations.len()).sum();
+        let running = tasks
+            .iter()
+            .filter(|task| {
+                task.destinations.iter().any(|destination| {
+                    statuses
+                        .get(&destination.id)
+                        .is_some_and(|status| status.outcome == SyncOutcome::Running)
+                })
+            })
+            .count();
+
+        h_flex()
+            .ml(px(12.))
+            .child(tally(strings::main_tally_tasks(), tasks.len(), cx))
+            .child(tally(strings::main_tally_destinations(), destinations, cx))
+            .child(tally(strings::main_tally_running(), running, cx))
+    }
+
     fn render_header(&self, all_expanded: bool, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .items_center()
@@ -978,11 +1005,12 @@ impl MainView {
             .pb(px(12.))
             .child(
                 div()
-                    .flex_1()
                     .text_size(theme::text::heading())
                     .font_weight(FontWeight::MEDIUM)
                     .child(strings::main_sync_tasks_heading()),
             )
+            .child(self.render_tallies(cx))
+            .child(div().flex_1())
             .child(
                 Button::new("toggle-expand")
                     .label(if all_expanded {
@@ -1057,7 +1085,14 @@ impl MainView {
             .mb(px(12.))
             .bg(cx.theme().background)
             .border_1()
-            .border_color(cx.theme().border)
+            // The border carries the card's state. A list of cards is scanned down its left
+            // edge, and a coloured outline is legible there in a way a badge in the middle of
+            // the row is not.
+            .border_color(match health.outcome {
+                SyncOutcome::Running => cx.theme().primary,
+                SyncOutcome::Failed => cx.theme().danger,
+                _ => cx.theme().border,
+            })
             .rounded(cx.theme().radius_lg)
             .child(
                 h_flex()
@@ -1107,17 +1142,17 @@ impl MainView {
                                                     .font_weight(FontWeight::MEDIUM)
                                                     .child(task.name.clone()),
                                             )
-                                            .child(kind_badge(task.kind()))
-                                            .child(trigger_badge(&task.trigger))
+                                            .child(kind_badge(task.kind(), cx))
+                                            .child(trigger_badge(&task.trigger, cx))
                                             .children(
                                                 self.next_runs
                                                     .get(&id)
-                                                    .map(|next| next_run_badge(*next)),
+                                                    .map(|next| next_run_badge(*next, cx)),
                                             )
                                             .children(
                                                 self.trigger_errors
                                                     .get(&id)
-                                                    .map(|reason| trigger_error_badge(reason)),
+                                                    .map(|reason| trigger_error_badge(reason, cx)),
                                             ),
                                     )
                                     .child(path_text(&task.source_path, cx)),
@@ -1200,6 +1235,7 @@ impl MainView {
                             ),
                     ),
             )
+            .when(running, |element| element.child(activity_bar(cx)))
             .when(expanded, |element| element.children(rows))
     }
 
@@ -1236,9 +1272,9 @@ impl MainView {
                             // Move destinations are rules in an ordered list; naming the
                             // strategy on each one would be noise.
                             .when(destination.strategy != SyncStrategy::Move, |element| {
-                                element.child(strategy_badge(destination.strategy))
+                                element.child(strategy_badge(destination.strategy, cx))
                             })
-                            .child(filter_badge(destination)),
+                            .child(filter_badge(destination, cx)),
                     )
                     .child(path_text(destination.local_path(), cx)),
             )
@@ -1456,6 +1492,44 @@ impl RenderOnce for TaskRows {
     }
 }
 
+/// One count and what it counts, divided from its neighbours by a hairline.
+///
+/// The number is monospaced so three of them line up whatever the digits are, and the caption
+/// under it is small enough that the figure is what you read first.
+fn tally(caption: &'static str, value: usize, cx: &App) -> impl IntoElement {
+    v_flex()
+        .px(px(12.))
+        .border_l_1()
+        .border_color(cx.theme().border)
+        .child(
+            div()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(px(17.))
+                .font_weight(FontWeight::BOLD)
+                .child(value.to_string()),
+        )
+        .child(
+            div()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(px(9.))
+                .text_color(cx.theme().muted_foreground)
+                .child(caption),
+        )
+}
+
+/// The indeterminate strip under a running card's header.
+///
+/// A single moving segment rather than a filling bar: the engine knows how many operations a
+/// run has, but a run that is still walking the source does not, and a bar that jumps from 0 to
+/// 90 lies about both.
+fn activity_bar(cx: &App) -> impl IntoElement {
+    div()
+        .h(px(2.))
+        .w_full()
+        .bg(cx.theme().muted)
+        .child(div().h_full().w(relative(0.3)).bg(cx.theme().primary))
+}
+
 /// One task in the sidebar.
 ///
 /// Hand-built rather than a `SidebarMenuItem`, for the same reason `section_row` is: the menu
@@ -1518,42 +1592,49 @@ fn add_destination_hint(kind: SyncTaskKind) -> &'static str {
     }
 }
 
-/// The contents of a badge: a small glyph and a label.
+/// The contents of a badge: a square pip and a label.
 ///
-/// The frame is the caller's, because the badge row is a set of *facts* and only two of them
-/// are about time or trouble. A pill would say they were all the same kind of thing.
-fn badge_body(glyph: Glyph, label: impl Into<SharedString>) -> impl IntoElement {
+/// A pip rather than the glyph that used to be here. Ten badges each carrying a different
+/// pictogram is ten little pictures to decode on a row whose words already say what they mean —
+/// and the glyphs were never the thing being read. What the square is for is rhythm: every
+/// badge starts at the same place, so the row scans as a list rather than as a jumble.
+///
+/// The colour has to be passed in because a `div` cannot inherit the tag's foreground the way
+/// an `Icon` did.
+fn badge_body(pip: Hsla, label: impl Into<SharedString>) -> impl IntoElement {
     h_flex()
-        .gap(px(4.))
+        .gap(px(6.))
         .items_center()
-        .child(Icon::new(glyph).size(px(12.)))
+        .child(div().size(px(6.)).bg(pip).flex_none())
         .child(label.into())
 }
 
 /// A fact about the task: its trigger, a destination's strategy, what it filters. A hairline
 /// box, so the row reads as a set of labels rather than a row of buttons.
-fn badge(glyph: Glyph, label: impl Into<SharedString>) -> Tag {
-    Tag::secondary().outline().child(badge_body(glyph, label))
+fn badge(label: impl Into<SharedString>, cx: &App) -> Tag {
+    Tag::secondary()
+        .outline()
+        .child(badge_body(cx.theme().secondary_foreground, label))
 }
 
 /// What the thing *is*. Filled, so it reads before the facts beside it.
-fn kind_badge(kind: SyncTaskKind) -> Tag {
-    let body = match kind {
-        SyncTaskKind::Sync => badge_body(Glyph::Sync, strings::enum_sync_task_kind_sync()),
-        SyncTaskKind::Move => badge_body(Glyph::Route, strings::enum_sync_task_kind_move()),
+fn kind_badge(kind: SyncTaskKind, cx: &App) -> Tag {
+    let label = match kind {
+        SyncTaskKind::Sync => strings::enum_sync_task_kind_sync(),
+        SyncTaskKind::Move => strings::enum_sync_task_kind_move(),
     };
-    Tag::primary().child(body)
+    Tag::primary().child(badge_body(cx.theme().primary_foreground, label))
 }
 
 /// `next run in 2 h`. Relative, because that is the question being asked.
 ///
 /// Outlined rather than filled: it is reference detail, and a filled one drew the eye harder
 /// than the task's own name.
-fn next_run_badge(next: DateTime<Local>) -> Tag {
-    Tag::secondary().outline().child(badge_body(
-        Glyph::Clock,
+fn next_run_badge(next: DateTime<Local>, cx: &App) -> Tag {
+    badge(
         strings::task_next_run_format(humanize(next - Local::now())),
-    ))
+        cx,
+    )
 }
 
 /// Rounded down to the coarsest unit that still says something useful. "in 90 minutes" is
@@ -1579,7 +1660,8 @@ fn humanize(span: chrono::TimeDelta) -> String {
 /// The task will not run by itself. Amber rather than red: what is broken is the automation,
 /// not the task — Run now still works. The reason itself rides along as the tooltip, because a
 /// badge wide enough to hold an OS error message is not a badge.
-fn trigger_error_badge(reason: &str) -> impl IntoElement {
+fn trigger_error_badge(reason: &str, cx: &App) -> impl IntoElement {
+    let pip = cx.theme().warning_foreground;
     let reason = reason.to_owned();
     div()
         .id("trigger-error")
@@ -1587,34 +1669,31 @@ fn trigger_error_badge(reason: &str) -> impl IntoElement {
         .child(
             // Filled, and the only badge on the row that is: everything else there is a fact,
             // and this one is a thing the user has to do something about.
-            Tag::warning().child(badge_body(
-                Glyph::Warning,
-                strings::task_trigger_error_badge(),
-            )),
+            Tag::warning().child(badge_body(pip, strings::task_trigger_error_badge())),
         )
 }
 
-fn trigger_badge(trigger: &Trigger) -> Tag {
+fn trigger_badge(trigger: &Trigger, cx: &App) -> Tag {
     match trigger {
-        Trigger::Manual => badge(Glyph::Manual, strings::task_trigger_manual()),
-        Trigger::Scheduled { cron_expression } => badge(
-            Glyph::Clock,
-            strings::task_trigger_scheduled_format(cron_expression),
-        ),
-        Trigger::Watch { .. } => badge(Glyph::Eye, strings::task_trigger_watching()),
+        Trigger::Manual => badge(strings::task_trigger_manual(), cx),
+        Trigger::Scheduled { cron_expression } => {
+            badge(strings::task_trigger_scheduled_format(cron_expression), cx)
+        }
+        Trigger::Watch { .. } => badge(strings::task_trigger_watching(), cx),
     }
 }
 
-fn strategy_badge(strategy: SyncStrategy) -> Tag {
-    match strategy {
-        SyncStrategy::Mirror => badge(Glyph::Sync, strings::enum_sync_strategy_mirror()),
-        SyncStrategy::AddOnly => badge(Glyph::Add, strings::enum_sync_strategy_add_only()),
-        SyncStrategy::Move => badge(Glyph::Route, strings::enum_sync_strategy_move()),
-    }
+fn strategy_badge(strategy: SyncStrategy, cx: &App) -> Tag {
+    let label = match strategy {
+        SyncStrategy::Mirror => strings::enum_sync_strategy_mirror(),
+        SyncStrategy::AddOnly => strings::enum_sync_strategy_add_only(),
+        SyncStrategy::Move => strings::enum_sync_strategy_move(),
+    };
+    badge(label, cx)
 }
 
-fn filter_badge(destination: &Destination) -> Tag {
-    badge(Glyph::Filter, filter_summary(destination))
+fn filter_badge(destination: &Destination, cx: &App) -> Tag {
+    badge(filter_summary(destination), cx)
 }
 
 /// What the filter badge says. Split out from the badge itself so it can be asserted on without

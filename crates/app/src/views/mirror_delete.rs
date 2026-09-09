@@ -108,96 +108,114 @@ impl Render for ConfirmMirrorDelete {
             .flex()
             .flex_col()
             .size_full()
-            .gap(px(14.))
-            .p(px(24.))
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
+            // Hazard stripes, at full strength, across the top of the window. The one surface
+            // in the app that has any business shouting: everything else it could be confused
+            // with is reversible, and this is not.
             .child(
                 div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(
-                        Icon::new(Glyph::Warning)
-                            .size(px(22.))
-                            .text_color(cx.theme().warning),
-                    )
-                    .child(
-                        div()
-                            .text_lg()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(strings::mirror_delete_review_deletions()),
-                    ),
+                    .h(px(8.))
+                    .w_full()
+                    .bg(gpui::pattern_slash(cx.theme().danger, 6., 6.))
+                    .border_b_2()
+                    .border_color(cx.theme().foreground),
             )
             .child(
                 div()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(self.explanation()),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .font_family(mono.clone())
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .child(self.destination_path.clone()),
-            )
-            .child(
-                div()
-                    .id("mirror-delete-sample")
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .p(px(10.))
-                    .rounded(cx.theme().radius)
-                    .bg(cx.theme().muted)
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .font_family(mono)
-                    // Deliberately not trimmed: inside this scrolling column `text_ellipsis`
-                    // collapses the line to a few stray pixels (measured, with and without an
-                    // explicit width). A long path wrapping onto a second line reads fine —
-                    // and trimming would hide the file name, which is the half that matters.
-                    .children(
-                        self.sample
-                            .iter()
-                            .map(|path| div().py(px(1.)).child(path.clone())),
-                    ),
-            )
-            .when(hidden > 0, |element| {
-                element.child(
-                    div()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(strings::mirror_delete_more_format(hidden)),
-                )
-            })
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .justify_end()
-                    .items_center()
-                    .gap(px(10.))
+                    .gap(px(14.))
+                    .p(px(24.))
                     .child(
-                        Button::new("mirror-delete-keep")
-                            .label(strings::mirror_delete_keep_them())
-                            .outline()
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.decide(MirrorDeleteDecision::Keep, window, cx)
-                            })),
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(
+                                Icon::new(Glyph::Warning)
+                                    .size(px(22.))
+                                    .text_color(cx.theme().warning),
+                            )
+                            .child(
+                                div()
+                                    .text_lg()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(strings::mirror_delete_review_deletions()),
+                            ),
                     )
                     .child(
-                        Button::new("mirror-delete-confirm")
-                            .label(self.confirm_label())
-                            .danger()
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.decide(MirrorDeleteDecision::Delete, window, cx)
-                            })),
+                        div()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(self.explanation()),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .font_family(mono.clone())
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis()
+                            .child(self.destination_path.clone()),
+                    )
+                    .child(
+                        div()
+                            .id("mirror-delete-sample")
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .p(px(10.))
+                            .rounded(cx.theme().radius)
+                            .bg(cx.theme().muted)
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .font_family(mono)
+                            // Deliberately not trimmed: inside this scrolling column `text_ellipsis`
+                            // collapses the line to a few stray pixels (measured, with and without an
+                            // explicit width). A long path wrapping onto a second line reads fine —
+                            // and trimming would hide the file name, which is the half that matters.
+                            .children(
+                                self.sample
+                                    .iter()
+                                    .map(|path| div().py(px(1.)).child(path.clone())),
+                            ),
+                    )
+                    .when(hidden > 0, |element| {
+                        element.child(
+                            div()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(strings::mirror_delete_more_format(hidden)),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .justify_end()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(
+                                Button::new("mirror-delete-keep")
+                                    .label(strings::mirror_delete_keep_them())
+                                    .outline()
+                                    .on_click(cx.listener(|view, _, window, cx| {
+                                        view.decide(MirrorDeleteDecision::Keep, window, cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("mirror-delete-confirm")
+                                    .label(self.confirm_label())
+                                    .danger()
+                                    .on_click(cx.listener(|view, _, window, cx| {
+                                        view.decide(MirrorDeleteDecision::Delete, window, cx)
+                                    })),
+                            ),
                     ),
             )
     }

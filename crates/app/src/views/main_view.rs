@@ -13,7 +13,7 @@ use gpui::{
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::link::Link;
 use gpui_component::sheet::Sheet;
-use gpui_component::sidebar::{Sidebar, SidebarMenu, SidebarMenuItem};
+use gpui_component::sidebar::Sidebar;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Root,
@@ -876,20 +876,16 @@ impl MainView {
         let collapsed = !self.workspace.sidebar_visible();
         let selected = self.workspace.selected();
 
-        let tasks: Vec<SidebarMenuItem> = self
+        let tasks: Vec<_> = self
             .workspace
             .tasks()
             .iter()
             .map(|task| {
                 let id = task.id;
                 let health = health_of(task, self.workspace.statuses());
-                let (glyph, color) = outcome_appearance(health.outcome, cx);
-                SidebarMenuItem::new(task.name.clone())
-                    .icon(Glyph::Folder)
-                    .active(selected == Some(id))
-                    // The source path used to sit under the name; a menu item has no room for
-                    // it. A health dot says more per pixel, and the path is on the card.
-                    .suffix(Icon::new(glyph).size(px(13.)).text_color(color))
+                // The source path used to sit under the name; the row has no room for it. A
+                // health mark says more per pixel, and the path is on the card.
+                task_row(id, &task.name, health.outcome, selected == Some(id), cx)
                     .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
             })
             .collect();
@@ -910,7 +906,10 @@ impl MainView {
                     cx.notify();
                 })),
             )
-            .child(SidebarMenu::new().children(if collapsed { Vec::new() } else { tasks }))
+            .child(TaskRows {
+                rows: tasks,
+                collapsed,
+            })
             .footer(
                 section_row(
                     "sidebar-settings",
@@ -1039,7 +1038,7 @@ impl MainView {
         let id = task.id;
         let expanded = self.workspace.is_expanded(id);
         let health = health_of(task, self.workspace.statuses());
-        let (health_glyph, health_color) = outcome_appearance(health.outcome, cx);
+        let (_, health_color) = outcome_appearance(health.outcome, cx);
         let running = health.outcome == SyncOutcome::Running;
         let rows: Vec<_> = task
             .destinations
@@ -1084,22 +1083,10 @@ impl MainView {
                                         cx.notify();
                                     })),
                             )
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .size(theme::layout::task_chip())
-                                    .ml(px(4.))
-                                    .mr(px(11.))
-                                    .rounded(cx.theme().radius)
-                                    .bg(cx.theme().primary.opacity(0.12))
-                                    .child(
-                                        Icon::new(Glyph::Folder)
-                                            .size(px(19.))
-                                            .text_color(cx.theme().primary),
-                                    ),
-                            )
+                            // No folder chip. It was a tinted block saying "this is a task" on
+                            // a card that is already nothing but tasks, and it was the one
+                            // rounded thing left in the header.
+                            .child(div().w(px(4.)))
                             .child(
                                 v_flex()
                                     .flex_1()
@@ -1143,13 +1130,9 @@ impl MainView {
                             .child(
                                 h_flex()
                                     .items_center()
-                                    .gap(px(5.))
+                                    .gap(px(7.))
                                     .text_color(health_color)
-                                    .child(
-                                        Icon::new(health_glyph)
-                                            .size(px(15.))
-                                            .text_color(health_color),
-                                    )
+                                    .child(health_mark(health.outcome, px(7.), cx))
                                     .child(health.text),
                             )
                             .child(
@@ -1228,7 +1211,7 @@ impl MainView {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let outcome = status.map_or(SyncOutcome::Never, |status| status.outcome);
-        let (glyph, color) = outcome_appearance(outcome, cx);
+        let (_, color) = outcome_appearance(outcome, cx);
         let id = destination.id;
 
         h_flex()
@@ -1239,11 +1222,7 @@ impl MainView {
             .pl(px(16.))
             .pr(px(12.))
             .py(px(10.))
-            .child(
-                div()
-                    .mr(px(11.))
-                    .child(Icon::new(glyph).size(px(17.)).text_color(color)),
-            )
+            .child(div().mr(px(11.)).child(health_mark(outcome, px(7.), cx)))
             .child(
                 v_flex()
                     .flex_1()
@@ -1447,6 +1426,74 @@ fn section_row(
         })
 }
 
+/// The task rows, as something `Sidebar` will accept as a child.
+///
+/// `Sidebar::child` takes a `Collapsible`, and the only things that implement it are the
+/// library's own menu, group, header and footer — all of which insist on their own item types.
+/// This is the smallest way to hand it a list of rows we drew ourselves: a newtype whose whole
+/// job is to answer the two questions the trait asks. Collapsed it renders nothing, which is
+/// what the rail wants anyway — a column of identical folder glyphs is not a list.
+#[derive(IntoElement)]
+struct TaskRows {
+    rows: Vec<Stateful<Div>>,
+    collapsed: bool,
+}
+
+impl gpui_component::Collapsible for TaskRows {
+    fn collapsed(mut self, collapsed: bool) -> Self {
+        self.collapsed = collapsed;
+        self
+    }
+
+    fn is_collapsed(&self) -> bool {
+        self.collapsed
+    }
+}
+
+impl RenderOnce for TaskRows {
+    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        v_flex().when(!self.collapsed, |list| list.children(self.rows))
+    }
+}
+
+/// One task in the sidebar.
+///
+/// Hand-built rather than a `SidebarMenuItem`, for the same reason `section_row` is: the menu
+/// item marks the active row with a filled block, and what says "this one" here is a solid bar
+/// down its left edge. The bar is 3px and always present — transparent when the row is not the
+/// one selected — so nothing shifts sideways as the selection moves.
+fn task_row(id: Uuid, name: &str, outcome: SyncOutcome, active: bool, cx: &App) -> Stateful<Div> {
+    h_flex()
+        .id(SharedString::from(format!("sidebar-task-{id}")))
+        .h(px(37.))
+        .items_center()
+        .gap(px(10.))
+        .pl(px(11.))
+        .pr(px(12.))
+        .border_l_3()
+        .border_color(if active {
+            cx.theme().foreground
+        } else {
+            gpui::transparent_black()
+        })
+        .when(active, |row| row.bg(cx.theme().background))
+        .cursor_pointer()
+        .hover(|style| style.bg(cx.theme().sidebar_accent.opacity(0.8)))
+        .child(Icon::new(Glyph::Folder).size(px(16.)))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_sm()
+                .when(active, |label| label.font_weight(FontWeight::SEMIBOLD))
+                .child(name.to_owned()),
+        )
+        .child(health_mark(outcome, px(7.), cx))
+}
+
 /// Paths are monospaced and muted throughout, so a long one reads as reference rather than
 /// competing with the name above it.
 fn path_text(path: &str, cx: &App) -> impl IntoElement {
@@ -1471,34 +1518,42 @@ fn add_destination_hint(kind: SyncTaskKind) -> &'static str {
     }
 }
 
-/// A quiet pill. The badge row is a set of facts, not a set of alerts, so only the two that are
-/// genuinely about time or trouble get a colour of their own.
-fn badge(glyph: Glyph, label: impl Into<SharedString>) -> Tag {
-    Tag::secondary().rounded_full().child(
-        h_flex()
-            .gap(px(4.))
-            .items_center()
-            .child(Icon::new(glyph).size(px(12.)))
-            .child(label.into()),
-    )
+/// The contents of a badge: a small glyph and a label.
+///
+/// The frame is the caller's, because the badge row is a set of *facts* and only two of them
+/// are about time or trouble. A pill would say they were all the same kind of thing.
+fn badge_body(glyph: Glyph, label: impl Into<SharedString>) -> impl IntoElement {
+    h_flex()
+        .gap(px(4.))
+        .items_center()
+        .child(Icon::new(glyph).size(px(12.)))
+        .child(label.into())
 }
 
+/// A fact about the task: its trigger, a destination's strategy, what it filters. A hairline
+/// box, so the row reads as a set of labels rather than a row of buttons.
+fn badge(glyph: Glyph, label: impl Into<SharedString>) -> Tag {
+    Tag::secondary().outline().child(badge_body(glyph, label))
+}
+
+/// What the thing *is*. Filled, so it reads before the facts beside it.
 fn kind_badge(kind: SyncTaskKind) -> Tag {
-    match kind {
-        SyncTaskKind::Sync => badge(Glyph::Sync, strings::enum_sync_task_kind_sync()),
-        SyncTaskKind::Move => badge(Glyph::Route, strings::enum_sync_task_kind_move()),
-    }
+    let body = match kind {
+        SyncTaskKind::Sync => badge_body(Glyph::Sync, strings::enum_sync_task_kind_sync()),
+        SyncTaskKind::Move => badge_body(Glyph::Route, strings::enum_sync_task_kind_move()),
+    };
+    Tag::primary().child(body)
 }
 
 /// `next run in 2 h`. Relative, because that is the question being asked.
+///
+/// Outlined rather than filled: it is reference detail, and a filled one drew the eye harder
+/// than the task's own name.
 fn next_run_badge(next: DateTime<Local>) -> Tag {
-    Tag::primary().rounded_full().child(
-        h_flex()
-            .gap(px(4.))
-            .items_center()
-            .child(Icon::new(Glyph::Clock).size(px(12.)))
-            .child(strings::task_next_run_format(humanize(next - Local::now()))),
-    )
+    Tag::secondary().outline().child(badge_body(
+        Glyph::Clock,
+        strings::task_next_run_format(humanize(next - Local::now())),
+    ))
 }
 
 /// Rounded down to the coarsest unit that still says something useful. "in 90 minutes" is
@@ -1530,13 +1585,12 @@ fn trigger_error_badge(reason: &str) -> impl IntoElement {
         .id("trigger-error")
         .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
         .child(
-            Tag::warning().rounded_full().child(
-                h_flex()
-                    .gap(px(4.))
-                    .items_center()
-                    .child(Icon::new(Glyph::Warning).size(px(12.)))
-                    .child(strings::task_trigger_error_badge()),
-            ),
+            // Filled, and the only badge on the row that is: everything else there is a fact,
+            // and this one is a thing the user has to do something about.
+            Tag::warning().child(badge_body(
+                Glyph::Warning,
+                strings::task_trigger_error_badge(),
+            )),
         )
 }
 
@@ -1627,6 +1681,22 @@ fn ago(last_run: Option<DateTime<FixedOffset>>) -> String {
 
 /// One glyph and one colour per outcome, shared by the card summary, the rows beneath it and the
 /// sidebar's health dots.
+/// A destination's health, as a square.
+///
+/// A square rather than a glyph, and the same square in all three places it appears — the card's
+/// summary, the rows under it, and the sidebar. Six outcomes drawn as six different pictograms
+/// asked the reader to learn an alphabet; a filled square asks them to notice a colour, which is
+/// the only thing that was ever being said. `size` is the one thing that differs, because the
+/// sidebar's is beside a name and the row's is beside a path.
+fn health_mark(outcome: SyncOutcome, size: Pixels, cx: &App) -> impl IntoElement {
+    let (_, color) = outcome_appearance(outcome, cx);
+    div().size(size).bg(color).flex_none()
+}
+
+/// The colour an outcome takes, and the glyph it used to take.
+///
+/// The glyph is still here for the one place a mark is not enough: `Incomplete` and
+/// `NeedsConfirmation` are both amber, and the mass-delete review needs to say which.
 fn outcome_appearance(outcome: SyncOutcome, cx: &App) -> (Glyph, Hsla) {
     match outcome {
         SyncOutcome::Never => (Glyph::Idle, cx.theme().muted_foreground),

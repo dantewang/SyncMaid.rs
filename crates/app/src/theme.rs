@@ -19,10 +19,10 @@ use gpui_component::{Theme, ThemeMode, ThemeSet};
 /// component library's own documentation suggests: that reads JSON from a `./themes` directory
 /// at run time, and SyncMaid ships as one executable with nothing beside it. A portable app
 /// that needs a folder of theme files is not portable.
-const THEMES: &str = include_str!("../assets/themes/ayu.json");
+const THEMES: &str = include_str!("../assets/themes/porcelain.json");
 
 /// The theme SyncMaid wears. Light only, as the Avalonia build was.
-const ACTIVE: &str = "Ayu Light";
+const ACTIVE: &str = "Porcelain";
 
 /// Applies [`ACTIVE`]. Call once, after `gpui_component::init`.
 pub fn install(cx: &mut App) {
@@ -63,10 +63,6 @@ pub mod layout {
     /// The task list sidebar.
     pub fn sidebar_width() -> Pixels {
         px(210.)
-    }
-    /// The square holding a task's folder glyph.
-    pub fn task_chip() -> Pixels {
-        px(34.)
     }
 }
 

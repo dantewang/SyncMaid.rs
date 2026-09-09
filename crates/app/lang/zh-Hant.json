@@ -117,6 +117,7 @@
   "Settings.PageGeneral": "一般",
   "Settings.CloseToTray": "關閉時最小化到系統匣而不結束",
   "Settings.CloseToTrayDesc": "關閉視窗後 SyncMaid 會繼續在系統匣中執行，排程和監看任務照常同步。",
+  "Settings.LanguageDesc": "只切換介面語言。日期和數字仍遵循 Windows 的地區設定。",
   "Settings.LanguageLabel": "語言",
   "Settings.OpenFolder": "開啟資料夾",
   "Settings.StartMinimized": "啟動時最小化到系統匣",

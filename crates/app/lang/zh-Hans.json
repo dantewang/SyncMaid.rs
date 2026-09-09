@@ -117,6 +117,7 @@
   "Settings.PageGeneral": "常规",
   "Settings.CloseToTray": "关闭时最小化到系统托盘而不退出",
   "Settings.CloseToTrayDesc": "关闭窗口后 SyncMaid 会继续在托盘中运行，定时和监视任务照常同步。",
+  "Settings.LanguageDesc": "只切换界面语言。日期和数字仍遵循 Windows 的区域设置。",
   "Settings.LanguageLabel": "语言",
   "Settings.OpenFolder": "打开文件夹",
   "Settings.StartMinimized": "启动时最小化到系统托盘",

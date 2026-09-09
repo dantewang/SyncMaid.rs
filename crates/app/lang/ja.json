@@ -117,6 +117,7 @@
   "Settings.PageGeneral": "一般",
   "Settings.CloseToTray": "閉じるときに終了せずシステムトレイに格納する",
   "Settings.CloseToTrayDesc": "ウィンドウを閉じても SyncMaid はトレイで動作し続け、スケジュールおよび監視タスクは同期を続けます。",
+  "Settings.LanguageDesc": "切り替わるのは表示言語だけです。日付と数値は Windows の地域設定に従います。",
   "Settings.LanguageLabel": "言語",
   "Settings.OpenFolder": "フォルダーを開く",
   "Settings.StartMinimized": "起動時にシステムトレイへ最小化する",

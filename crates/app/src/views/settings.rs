@@ -1,19 +1,23 @@
 //! The settings page.
 //!
-//! Not a modal any more: it takes over the whole window body, with a back arrow where the task
-//! sidebar was. Settings is somewhere you *go*, and a scrim over a task list you cannot use is a
-//! worse answer than replacing it.
+//! Not a modal any more: it takes over the whole window body, and the gear in the sidebar is a
+//! toggle rather than a one-way door. Settings is somewhere you *go*, and a scrim over a task
+//! list you cannot use is a worse answer than replacing it.
 //!
 //! Every switch here applies the moment it is flipped. There is no save step: a settings page
 //! that needs one invites the user to wonder whether the last change took.
 
 use std::path::PathBuf;
 
-use gpui::{div, prelude::*, px, Context, EventEmitter, SharedString, WeakEntity, Window};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::group_box::GroupBoxVariant;
-use gpui_component::setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings};
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Sizable as _};
+use gpui::{
+    div, prelude::*, px, App, Context, Div, EventEmitter, FontWeight, SharedString, Window,
+};
+use gpui_component::button::Button;
+
+use gpui_component::alert::Alert;
+use gpui_component::button::ButtonGroup;
+use gpui_component::switch::Switch;
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Selectable as _, Sizable as _};
 use syncmaid_core::model::AppSettings;
 
 use crate::components::Glyph;
@@ -24,8 +28,6 @@ use crate::{i18n, strings};
 pub enum SettingsEvent {
     /// Apply and persist these. Emitted on every toggle.
     Changed(AppSettings),
-    /// The back arrow: return to the task list.
-    Closed,
 }
 
 /// See the module docs.
@@ -103,202 +105,259 @@ impl EventEmitter<SettingsEvent> for SettingsView {}
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // One flowing page, not a page list. There were five pages holding one row each, which
+        // is a table of contents for a document you can read in a single screenful — and the
+        // inner sidebar it needed put a second navigation column beside the app's own.
+        //
+        // No back bar either: the gear in the sidebar is a toggle, and it is where the user
+        // came from.
         v_flex()
+            .id("settings")
             .size_full()
+            .overflow_y_scroll()
             .bg(cx.theme().background)
-            .child(self.render_back_bar(cx))
+            .px(px(22.))
+            .py(px(16.))
+            .gap(px(22.))
             .child(
                 div()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_hidden()
-                    .child(self.pages(cx)),
+                    .text_size(px(18.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .pb(px(6.))
+                    .child(strings::settings_title()),
             )
+            .child(self.render_general(cx))
+            .child(self.render_startup(cx))
+            .child(self.render_window(cx))
+            .child(self.render_storage(cx))
+            .child(self.render_about(cx))
     }
 }
 
 impl SettingsView {
-    fn render_back_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        h_flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(12.))
-            .py(px(10.))
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                Button::new("settings-back")
-                    .icon(Glyph::Back)
-                    .ghost()
-                    .small()
-                    .tooltip(strings::settings_back())
-                    .on_click(cx.listener(|_, _, _, cx| cx.emit(SettingsEvent::Closed))),
-            )
-            .child(
-                div()
-                    .text_lg()
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .child(strings::settings_title()),
-            )
-    }
-
-    /// The page list and the active page.
+    /// A row of buttons rather than a dropdown.
     ///
-    /// Every field reads its value from a snapshot captured here rather than from the entity.
-    /// That is not an optimisation: `SettingField`'s getter runs *during* this render, when the
-    /// entity is already mutably borrowed, so reading it back would panic. Immediate-mode
-    /// rendering rebuilds this whole tree every frame, so the snapshot is never stale.
-    fn pages(&self, cx: &mut Context<Self>) -> Settings {
-        let auto_start_on = self.auto_start_state == AutoStartState::Enabled;
-        let blocked_by_windows = self.auto_start_state == AutoStartState::DisabledByWindows;
-        let close_to_tray = self.settings.close_to_tray;
-        let start_minimized = self.settings.start_minimized;
-        let language = self.language_value();
-        let directory = self.data_directory.clone();
-        let version = self.version;
+    /// There are five choices and they are all short, so a list that has to be opened to be
+    /// read is a click spent hiding something that fits. It also means the current language is
+    /// visible without interacting with anything.
+    fn render_general(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let options = Self::language_options();
+        let current = self.language_value();
+        let chosen = options
+            .iter()
+            .position(|(value, _)| *value == current)
+            .unwrap_or(0);
 
-        let view = cx.weak_entity();
+        let group = options.iter().enumerate().fold(
+            ButtonGroup::new("settings-language").outline().small(),
+            |group, (index, (_, label))| {
+                group.child(
+                    Button::new(SharedString::from(format!("language-{index}")))
+                        .label(label.clone())
+                        .selected(index == chosen),
+                )
+            },
+        );
 
-        Settings::new("app-settings")
-            .with_group_variant(GroupBoxVariant::Outline)
-            .sidebar_width(px(170.))
-            .pages(vec![
-                // No group title: the page header already says it, and a box labelled with the
-                // name of the page it is the only thing on says nothing twice.
-                SettingPage::new(strings::settings_page_general()).group(SettingGroup::new().item(
-                    SettingItem::new(
-                        strings::settings_language_label(),
-                        SettingField::dropdown(
-                            Self::language_options(),
-                            move |_| language.clone(),
-                            {
-                                let view = view.clone();
-                                move |chosen: SharedString, cx| {
-                                    let tag = (!chosen.is_empty()).then(|| chosen.to_string());
-                                    view.update(cx, |this, cx| this.choose_language(tag, cx))
-                                        .ok();
-                                }
-                            },
-                        ),
-                    ),
-                )),
-                SettingPage::new(strings::settings_startup_label()).group(
-                    SettingGroup::new().item(Self::startup_item(
-                        auto_start_on,
-                        blocked_by_windows,
-                        &view,
-                    )),
-                ),
-                SettingPage::new(strings::settings_window_label()).group(
-                    SettingGroup::new().items(vec![
-                        SettingItem::new(
-                            strings::settings_close_to_tray(),
-                            SettingField::switch(move |_| close_to_tray, {
-                                let view = view.clone();
-                                move |value: bool, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.change(|settings| settings.close_to_tray = value, cx)
-                                    })
-                                    .ok();
-                                }
-                            }),
-                        )
-                        .description(strings::settings_close_to_tray_desc()),
-                        SettingItem::new(
-                            strings::settings_start_minimized(),
-                            SettingField::switch(move |_| start_minimized, {
-                                let view = view.clone();
-                                move |value: bool, cx| {
-                                    view.update(cx, |this, cx| {
-                                        this.change(|settings| settings.start_minimized = value, cx)
-                                    })
-                                    .ok();
-                                }
-                            }),
-                        )
-                        .description(strings::settings_start_minimized_desc()),
-                    ]),
-                ),
-                SettingPage::new(strings::settings_storage_label()).group(
-                    SettingGroup::new()
-                        .title(strings::settings_storage_portable())
-                        .description(strings::settings_storage_portable_desc())
-                        // Nothing to edit: the path is where the executable is. A custom row
-                        // rather than a disabled input, because a disabled input reads as
-                        // something that ought to be editable.
-                        .item(SettingItem::render(move |_, _, cx| {
-                            let directory = directory.clone();
-                            let view = view.clone();
-                            v_flex()
-                                .gap(px(8.))
-                                .child(
-                                    div()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .font_family(cx.theme().mono_font_family.clone())
-                                        .child(directory.to_string_lossy().into_owned()),
-                                )
-                                .child(
-                                    h_flex().child(
-                                        Button::new("open-data-folder")
-                                            .label(strings::settings_open_folder())
-                                            .icon(Glyph::Folder)
-                                            .outline()
-                                            .small()
-                                            .on_click(move |_, _, cx| {
-                                                view.read_with(cx, |this, _| {
-                                                    this.reveal_data_folder()
-                                                })
-                                                .ok();
-                                            }),
-                                    ),
-                                )
-                        })),
-                ),
-                SettingPage::new(strings::settings_about_label()).group(SettingGroup::new().item(
-                    SettingItem::render(move |_, _, cx| {
-                        div()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(strings::settings_version_format(version))
-                    }),
-                )),
-            ])
-    }
-
-    /// The "start with Windows" row.
-    ///
-    /// When Windows itself has turned the entry off, the row shows a fixed label instead of a
-    /// switch. A switch that flips and springs back reads as a bug; a label that says who is in
-    /// charge, next to a description saying where to change it, reads as the truth. SyncMaid
-    /// never writes `StartupApproved\Run` to overrule that — doing so is exactly the behaviour
-    /// that makes an app look like something to be suspicious of.
-    fn startup_item(enabled: bool, blocked: bool, view: &WeakEntity<Self>) -> SettingItem {
-        if blocked {
-            return SettingItem::new(
-                strings::settings_start_with_windows(),
-                SettingField::render(|_, _, cx| {
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().warning)
-                        .child(strings::settings_startup_off())
-                }),
+        section(strings::settings_page_general(), cx).child(
+            setting_row(
+                strings::settings_language_label(),
+                strings::settings_language_desc(),
+                true,
+                cx,
             )
-            .description(strings::settings_startup_disabled_by_windows());
-        }
-
-        let view = view.clone();
-        SettingItem::new(
-            strings::settings_start_with_windows(),
-            SettingField::switch(
-                move |_| enabled,
-                move |_, cx| {
-                    view.update(cx, |this, cx| this.toggle_auto_start(cx)).ok();
-                },
+            .child(
+                group.on_click(cx.listener(|this, clicked: &Vec<usize>, _, cx| {
+                    let Some(index) = clicked.first() else {
+                        return;
+                    };
+                    let tag = Self::language_options()
+                        .get(*index)
+                        .map(|(value, _)| value.to_string())
+                        .filter(|value| !value.is_empty());
+                    this.choose_language(tag, cx);
+                })),
             ),
         )
-        .description(strings::settings_start_with_windows_desc())
     }
 
+    /// Windows' own switch wins, and the page says so rather than fighting it. SyncMaid never
+    /// writes `StartupApproved\Run` to overrule it: that is exactly the behaviour antivirus
+    /// heuristics look for, and the user meant it when they used it.
+    fn render_startup(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let blocked = self.auto_start_state == AutoStartState::DisabledByWindows;
+        let enabled = self.auto_start_state == AutoStartState::Enabled;
+
+        section(strings::settings_startup_label(), cx)
+            .child(
+                setting_row(
+                    strings::settings_start_with_windows(),
+                    strings::settings_start_with_windows_desc(),
+                    blocked,
+                    cx,
+                )
+                .when(!blocked, |row| {
+                    row.child(
+                        Switch::new("settings-startup")
+                            .checked(enabled)
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_auto_start(cx))),
+                    )
+                }),
+            )
+            .when(blocked, |group| {
+                group.child(Alert::warning(
+                    "startup-blocked",
+                    strings::settings_startup_disabled_by_windows(),
+                ))
+            })
+    }
+
+    fn render_window(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let close_to_tray = self.settings.close_to_tray;
+        let start_minimized = self.settings.start_minimized;
+
+        section(strings::settings_window_label(), cx)
+            .child(
+                setting_row(
+                    strings::settings_close_to_tray(),
+                    strings::settings_close_to_tray_desc(),
+                    false,
+                    cx,
+                )
+                .child(
+                    Switch::new("settings-close-to-tray")
+                        .checked(close_to_tray)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.change(|settings| settings.close_to_tray = !close_to_tray, cx)
+                        })),
+                ),
+            )
+            .child(
+                setting_row(
+                    strings::settings_start_minimized(),
+                    strings::settings_start_minimized_desc(),
+                    true,
+                    cx,
+                )
+                .child(
+                    Switch::new("settings-start-minimized")
+                        .checked(start_minimized)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.change(|settings| settings.start_minimized = !start_minimized, cx)
+                        })),
+                ),
+            )
+    }
+
+    fn render_storage(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.weak_entity();
+        let directory = self.data_directory.to_string_lossy().into_owned();
+
+        section(strings::settings_storage_label(), cx)
+            .child(
+                setting_row(
+                    strings::settings_storage_portable(),
+                    strings::settings_storage_portable_desc(),
+                    true,
+                    cx,
+                )
+                .child(
+                    Button::new("open-data-folder")
+                        .label(strings::settings_open_folder())
+                        .icon(Glyph::Folder)
+                        .outline()
+                        .small()
+                        .on_click(move |_, _, cx| {
+                            view.read_with(cx, |this, _| this.reveal_data_folder()).ok();
+                        }),
+                ),
+            )
+            // Not an input. A disabled text box reads as something that ought to be editable;
+            // this is simply where the folder is.
+            .child(
+                div()
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(directory),
+            )
+    }
+
+    fn render_about(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        section(strings::settings_about_label(), cx).child(
+            h_flex()
+                .pt(px(11.))
+                .gap(px(14.))
+                .items_center()
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("SyncMaid"))
+                .child(
+                    div()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(strings::settings_version_format(self.version)),
+                ),
+        )
+    }
+}
+
+/// A group of settings under a mono-caps caption and a hairline.
+///
+/// A caption rather than a box: the rows inside already read as a set, and a border around them
+/// would be a second frame inside the pane's own.
+fn section(label: &'static str, cx: &App) -> Div {
+    v_flex()
+        .gap(px(2.))
+        .child(
+            div()
+                .font_family(cx.theme().mono_font_family.clone())
+                .text_size(px(9.))
+                .font_weight(FontWeight::BOLD)
+                .text_color(cx.theme().muted_foreground)
+                .pb(px(6.))
+                .child(label),
+        )
+        .child(div().h(px(1.)).bg(cx.theme().border))
+}
+
+/// One setting: what it is, what it means, and the control that changes it.
+///
+/// The description is not optional garnish. Every switch on this page changes behaviour the
+/// user will meet later without a prompt — a window that does not close, an app that starts
+/// itself — and the sentence under the label is where that is said.
+fn setting_row(
+    label: &'static str,
+    description: &'static str,
+    last: bool,
+    cx: &App,
+) -> gpui::Stateful<Div> {
+    h_flex()
+        .id(label)
+        .py(px(11.))
+        .gap(px(16.))
+        .items_start()
+        .when(!last, |row| {
+            row.border_b_1().border_color(cx.theme().border)
+        })
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .gap(px(3.))
+                .child(div().font_weight(FontWeight::MEDIUM).child(label))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(description),
+                ),
+        )
+}
+
+impl SettingsView {
     /// The dropdown's `(value, label)` pairs. An empty value means "follow the system".
     ///
     /// Each language is listed in its own words — only "system default" is translated, because

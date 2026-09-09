@@ -117,6 +117,7 @@
   "Settings.PageGeneral": "General",
   "Settings.CloseToTray": "Close to the system tray instead of exiting",
   "Settings.CloseToTrayDesc": "Keeps SyncMaid running in the tray when you close the window, so scheduled and watched tasks keep syncing.",
+  "Settings.LanguageDesc": "Only the interface switches. Dates and numbers keep following Windows' regional settings.",
   "Settings.LanguageLabel": "Language",
   "Settings.OpenFolder": "Open folder",
   "Settings.StartMinimized": "Start minimized to the system tray",

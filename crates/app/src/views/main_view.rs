@@ -12,12 +12,12 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::link::Link;
+use gpui_component::scroll::{Scrollbar, ScrollbarShow};
 use gpui_component::sheet::Sheet;
-use gpui_component::sidebar::Sidebar;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{
     alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Root,
-    Sizable as _, WindowExt as _,
+    Selectable as _, Sizable as _, WindowExt as _,
 };
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{
@@ -529,11 +529,6 @@ impl MainView {
                         .update_settings(|current| *current = settings);
                     cx.notify();
                 }
-                SettingsEvent::Closed => {
-                    view.route = Route::Tasks;
-                    view.editor_subscription = None;
-                    cx.notify();
-                }
             },
         ));
         self.route = Route::Settings(view);
@@ -832,12 +827,7 @@ impl Render for MainView {
             .h(viewport.height)
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
-            .child(match &self.route {
-                Route::Tasks => self.render_tasks(cx).into_any_element(),
-                // Settings takes the whole body, back arrow and all: it is somewhere you go,
-                // and a scrim over a task list you cannot touch says less than replacing it.
-                Route::Settings(view) => view.clone().into_any_element(),
-            })
+            .child(self.render_body(cx))
             // `Root` owns the sheet and dialog stacks but draws neither — the application's own
             // root view has to, which is what puts them above everything here rather than behind
             // it. Leave these out and `open_sheet` / `open_dialog` succeed and show nothing.
@@ -848,33 +838,40 @@ impl Render for MainView {
 }
 
 impl MainView {
-    fn render_tasks(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The sidebar, and whatever it is pointing at.
+    ///
+    /// Settings replaces the content area rather than the whole body. The gear that opened it is
+    /// in the sidebar; taking the sidebar away would hide the control that closes it again.
+    fn render_body(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .flex_1()
             .min_w_0()
             .items_start()
             .overflow_hidden()
             .child(self.render_sidebar(cx))
-            .child(self.render_main_pane(cx))
+            .child(match &self.route {
+                Route::Tasks => self.render_main_pane(cx).into_any_element(),
+                Route::Settings(view) => div()
+                    .flex_1()
+                    .min_w_0()
+                    .h_full()
+                    .child(view.clone())
+                    .into_any_element(),
+            })
     }
 
-    /// Tasks, the tasks themselves, and the way into settings.
+    /// The tasks, and the way into settings.
     ///
-    /// Two levels: Tasks and Settings are sections, and the tasks are the list under one of them.
-    /// The sections are drawn by [`section_row`] and the tasks by `SidebarMenuItem`, which is what
-    /// gives them different weight — a menu item's row is hard-coded `text_sm`, so a section built
-    /// from one could never be anything but the same size as its own contents.
+    /// Hand-built rather than the component library's `Sidebar`, and it no longer folds. The
+    /// rail was a section row you had to know to click, and it bought back 160px in a window
+    /// that is 940 wide — a control whose only job is to make the rest slightly bigger.
     ///
-    /// There is no separate collapse control: the Tasks row is it. A chevron whose only job is
-    /// folding the panel is one more thing in a rail with room for very little.
-    ///
-    /// Collapsed, the rail holds those two rows and nothing else. The tasks are deliberately left
-    /// out — they all draw the same folder glyph, so a rail of them would be a column of identical
-    /// marks you could only tell apart by clicking. Their cards are already to the right with
-    /// their names on them.
+    /// The wordmark sits at the foot with settings beside it, because the top of a sidebar is
+    /// where the list wants to start, and the product's name is the one thing on screen that
+    /// never changes.
     fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let collapsed = !self.workspace.sidebar_visible();
         let selected = self.workspace.selected();
+        let in_settings = matches!(self.route, Route::Settings(_));
 
         let tasks: Vec<_> = self
             .workspace
@@ -885,41 +882,70 @@ impl MainView {
                 let health = health_of(task, self.workspace.statuses());
                 // The source path used to sit under the name; the row has no room for it. A
                 // health mark says more per pixel, and the path is on the card.
-                task_row(id, &task.name, health.outcome, selected == Some(id), cx)
-                    .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
+                task_row(
+                    id,
+                    &task.name,
+                    health.outcome,
+                    !in_settings && selected == Some(id),
+                    cx,
+                )
+                .on_click(cx.listener(move |view, _, _, cx| view.select_task(id, cx)))
             })
             .collect();
 
-        Sidebar::left()
+        v_flex()
             .w(theme::layout::sidebar_width())
-            .collapsed(collapsed)
-            .header(
-                section_row(
-                    "sidebar-tasks",
-                    Glyph::Folder,
-                    strings::main_tasks_heading(),
-                    collapsed,
-                    cx,
-                )
-                .on_click(cx.listener(|view, _, _, cx| {
-                    view.workspace.toggle_sidebar();
-                    cx.notify();
-                })),
+            .h_full()
+            .flex_none()
+            .bg(cx.theme().sidebar)
+            .border_r_1()
+            .border_color(cx.theme().sidebar_border)
+            .child(
+                div()
+                    .pt(px(13.))
+                    .pb(px(6.))
+                    .pl(px(14.))
+                    .font_family(cx.theme().mono_font_family.clone())
+                    .text_size(px(9.))
+                    .font_weight(FontWeight::BOLD)
+                    .text_color(cx.theme().muted_foreground)
+                    .child(strings::main_tasks_heading()),
             )
-            .child(TaskRows {
-                rows: tasks,
-                collapsed,
-            })
-            .footer(
-                section_row(
-                    "sidebar-settings",
-                    Glyph::Settings,
-                    strings::settings_title(),
-                    collapsed,
-                    cx,
-                )
-                .on_click(cx.listener(|view, _, _, cx| view.open_settings(cx))),
+            .children(tasks)
+            .child(div().flex_1())
+            .child(div().h(px(1.)).bg(cx.theme().sidebar_border))
+            .child(
+                h_flex()
+                    .h(px(42.))
+                    .items_center()
+                    .pr(px(9.))
+                    .child(wordmark(cx))
+                    .child(div().flex_1())
+                    .child(
+                        // Filled while the page is open, not merely "selected": the ghost
+                        // variant marks that state with a tint the sidebar ground already has.
+                        Button::new("sidebar-settings")
+                            .icon(Glyph::Settings)
+                            .when(in_settings, |button| button.primary())
+                            .when(!in_settings, |button| button.ghost())
+                            .small()
+                            .selected(in_settings)
+                            .tooltip(strings::settings_title())
+                            .on_click(cx.listener(|view, _, _, cx| view.toggle_settings(cx))),
+                    ),
             )
+    }
+
+    /// Settings is somewhere you go and come back from, so the gear is a toggle rather than a
+    /// one-way door. That is also what removed the back bar the page used to carry.
+    fn toggle_settings(&mut self, cx: &mut Context<Self>) {
+        match self.route {
+            Route::Settings(_) => {
+                self.route = Route::Tasks;
+                cx.notify();
+            }
+            Route::Tasks => self.open_settings(cx),
+        }
     }
 
     /// Brings the chosen task's card into view.
@@ -962,12 +988,30 @@ impl MainView {
             })
             .when(cards.is_empty(), |element| element.child(empty_state(cx)))
             .child(
-                v_flex()
-                    .id("task-list")
+                // The scrolling box sits inside a relative wrapper because `Scrollbar` lays
+                // itself out absolutely over its parent — as a child of the scroll area it
+                // would scroll away with the content it is measuring.
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
                     .flex_1()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.task_list)
-                    .children(cards),
+                    .min_h_0()
+                    .child(
+                        v_flex()
+                            .id("task-list")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.task_list)
+                            .children(cards),
+                    )
+                    // `Always` rather than the theme's default, which fades the bar out two
+                    // seconds after the last scroll. It still hides itself when everything
+                    // fits, so what is left is exactly the signal wanted: a bar means there is
+                    // more above or below.
+                    .child(
+                        Scrollbar::vertical(&self.task_list).scrollbar_show(ScrollbarShow::Always),
+                    ),
             )
     }
 
@@ -1370,126 +1414,32 @@ impl MainView {
     }
 }
 
-/// `Sidebar`'s width once collapsed. Its own `COLLAPSED_WIDTH`, which it keeps private.
-const RAIL_WIDTH: f32 = 48.;
-/// What `Sidebar` pads its header and footer with, per state: `px_3`/`pt_3` open, `px_2`/`pt_2`
-/// in the rail. Every jump [`section_row`] has to cancel comes from this 4px.
-const SIDEBAR_PAD_OPEN: f32 = 12.;
-const SIDEBAR_PAD_RAIL: f32 = 8.;
-/// A section's icon. Bigger than a task's 16px, which is what separates the two levels.
-const SECTION_ICON: f32 = 18.;
-/// The gap between a section's icon and every edge of its hover background.
+/// `SYNC` in a filled block, `MAID` beside it.
 ///
-/// Derived, because in the rail there is exactly one value that works: the usable width there is
-/// `RAIL_WIDTH` less the sidebar's own padding on both sides, and the icon has to sit in the
-/// middle of it. Using the same number on all four sides, in both states, is what puts the icon
-/// dead centre of the highlight rather than jammed against one edge of it.
-const SECTION_PAD: f32 = (RAIL_WIDTH - 2. * SIDEBAR_PAD_RAIL - SECTION_ICON) / 2.;
-/// A section row, whatever it happens to hold.
-///
-/// **Fixed on purpose.** Left to size itself the row is as tall as its tallest child, so losing
-/// the label in the rail made it shorter and slid the icon upward — the vertical half of the
-/// same jump.
-const SECTION_ROW_H: f32 = SECTION_ICON + 2. * SECTION_PAD;
-
-/// One of the two top-level rows: Tasks, and Settings.
-///
-/// Hand-built rather than a `SidebarMenuItem`, for one reason: a menu item's row is hard-coded
-/// `text_sm` and its label is a plain `SharedString`, so a section made from one can never be
-/// heavier than the list underneath it. Everything else is copied from a menu item on purpose —
-/// the same radius, the same hover colour — because these rows sit in the same column as the
-/// tasks and should differ only in weight.
-///
-/// **Position is corrected with margin, never padding.** `Sidebar` pads its header and footer 12
-/// when open and 8 in the rail, on the top as well as the sides, so a row that just sits there
-/// jumps both ways as the panel folds. Padding could cancel that out, but padding is also what
-/// spaces the icon inside its own hover background — spend it on position and the highlight ends
-/// up tight on one side and loose on the others. Margin moves the row without reshaping it, so
-/// the icon keeps the same gap on all four sides in both states.
-fn section_row(
-    id: &'static str,
-    glyph: Glyph,
-    label: &'static str,
-    collapsed: bool,
-    cx: &App,
-) -> Stateful<Div> {
-    let sidebar_pad = if collapsed {
-        SIDEBAR_PAD_RAIL
-    } else {
-        SIDEBAR_PAD_OPEN
-    };
-    // Sideways: inset the row the same distance from *both* sidebar edges, which is the rail's
-    // own padding — the one inset that lets the box fill the rail exactly and so centre the icon
-    // in it. Applied to each side, so the box stays centred in the panel when it is open too.
-    // It has to grow rather than be `w_full`: a percentage width ignores margins, so correcting
-    // only the position left the box 8 from the left edge and 16 from the right.
-    let nudge_x = SIDEBAR_PAD_RAIL - sidebar_pad;
-    // Downward: line it up with where the open state's padding puts it, so the row does not rise
-    // when the panel folds.
-    let nudge_y = SIDEBAR_PAD_OPEN - sidebar_pad;
-
+/// No icon. The title bar and the taskbar already carry the picture, and a third copy of it
+/// 200px away was saying the same thing again.
+fn wordmark(cx: &App) -> impl IntoElement {
     h_flex()
-        .id(id)
-        .flex_1()
-        .h(px(SECTION_ROW_H))
-        .ml(px(nudge_x))
-        .mr(px(nudge_x))
-        .mt(px(nudge_y))
-        .px(px(SECTION_PAD))
-        .gap(px(SECTION_PAD))
-        .rounded(cx.theme().radius)
-        .cursor_pointer()
-        .hover(|style| {
-            style
-                .bg(cx.theme().sidebar_accent.opacity(0.8))
-                .text_color(cx.theme().sidebar_accent_foreground)
-        })
-        .child(Icon::new(glyph).size(px(SECTION_ICON)))
-        .when(!collapsed, |row| {
-            row.child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .text_base()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(label),
-            )
-        })
-        // Only in the rail, where the label it replaces is not there to read.
-        .when(collapsed, |row| {
-            row.tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
-        })
-}
-
-/// The task rows, as something `Sidebar` will accept as a child.
-///
-/// `Sidebar::child` takes a `Collapsible`, and the only things that implement it are the
-/// library's own menu, group, header and footer — all of which insist on their own item types.
-/// This is the smallest way to hand it a list of rows we drew ourselves: a newtype whose whole
-/// job is to answer the two questions the trait asks. Collapsed it renders nothing, which is
-/// what the rail wants anyway — a column of identical folder glyphs is not a list.
-#[derive(IntoElement)]
-struct TaskRows {
-    rows: Vec<Stateful<Div>>,
-    collapsed: bool,
-}
-
-impl gpui_component::Collapsible for TaskRows {
-    fn collapsed(mut self, collapsed: bool) -> Self {
-        self.collapsed = collapsed;
-        self
-    }
-
-    fn is_collapsed(&self) -> bool {
-        self.collapsed
-    }
-}
-
-impl RenderOnce for TaskRows {
-    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
-        v_flex().when(!self.collapsed, |list| list.children(self.rows))
-    }
+        .pl(px(11.))
+        .items_center()
+        .child(
+            div()
+                .px(px(6.))
+                .py(px(4.))
+                .bg(cx.theme().foreground)
+                .text_color(cx.theme().background)
+                .text_size(px(13.))
+                .font_weight(FontWeight::BOLD)
+                .child("SYNC"),
+        )
+        .child(
+            div()
+                .pl(px(6.))
+                .py(px(4.))
+                .text_size(px(13.))
+                .font_weight(FontWeight::BOLD)
+                .child("MAID"),
+        )
 }
 
 /// One count and what it counts, divided from its neighbours by a hairline.

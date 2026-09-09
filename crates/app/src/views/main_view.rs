@@ -1,18 +1,18 @@
 //! The main window: a task sidebar, the task list, and the settings page it swaps to.
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset, Local};
 
 use gpui::{
-    div, prelude::*, px, relative, App, Context, Div, Entity, FontWeight, Hsla, Pixels,
+    div, point, prelude::*, px, relative, App, Context, Div, Entity, FontWeight, Hsla, Pixels,
     ScrollHandle, SharedString, Stateful, Subscription, Window,
 };
 use gpui_component::button::{Button, ButtonVariants as _};
 use gpui_component::link::Link;
-use gpui_component::scroll::{Scrollbar, ScrollbarShow};
 use gpui_component::sheet::Sheet;
 use gpui_component::tooltip::Tooltip;
 use gpui_component::{
@@ -27,7 +27,7 @@ use syncmaid_core::sync::{SyncEngine, SyncOperation, SyncProgress};
 use syncmaid_core::triggers::{CronSchedule, DefaultTriggerSourceFactory, Notification, Trigger};
 use uuid::Uuid;
 
-use crate::components::Glyph;
+use crate::components::{Glyph, ScrollNotify, ScrollRail, RAIL_WIDTH};
 use crate::services::logging;
 use crate::state::{health_of, run_conflict, RunGate, TriggerEvent, TriggerHost, Workspace};
 use crate::strings;
@@ -61,13 +61,17 @@ const NEXT_RUN_REFRESH: Duration = Duration::from_secs(30);
 fn editor_sheet(
     sheet: Sheet,
     window: &mut Window,
+    cx: &App,
     preferred: Pixels,
+    scroll: &ScrollHandle,
+    notify: ScrollNotify,
     body: impl IntoElement,
 ) -> Sheet {
     let viewport = window.viewport_size();
     // Never wider than the window it slides into — the window's minimum is 640, and a sheet
     // asking for 760 there would run off the left edge.
     let width = px(f32::from(preferred).min(f32::from(viewport.width) - 48.));
+    let (above, below) = clipped(scroll);
 
     sheet
         .size(width)
@@ -76,18 +80,67 @@ fn editor_sheet(
         // bar, and ours is the system's — the client area already starts below it.
         .margin_top(px(0.))
         .child(
+            // The form gives up the rail's width rather than sharing it. There is no spare
+            // margin in a sheet the way there is in the content pane — the sheet sets its own
+            // width — so the choice is between a narrower form and a bar across the fields.
             div()
-                .id("sheet-body")
+                .relative()
+                .flex()
+                .flex_col()
                 .w(width - SHEET_PADDING * 2.)
-                .max_h(viewport.height - SHEET_CHROME)
-                .overflow_hidden()
-                .overflow_y_scroll()
-                .child(body),
+                .child(
+                    div()
+                        .id("sheet-body")
+                        .w_full()
+                        .max_h(viewport.height - SHEET_CHROME)
+                        .overflow_hidden()
+                        .overflow_y_scroll()
+                        .track_scroll(scroll)
+                        .pr(RAIL_WIDTH)
+                        .child(body),
+                )
+                .child(ScrollRail::vertical("sheet-rail", scroll).on_scroll({
+                    let notify = notify.clone();
+                    move |window, cx| notify(window, cx)
+                }))
+                // Wall to wall here, unlike the task list. A sheet's form is one object rather
+                // than a column of cards, so there is no run of edges for a short rule to join;
+                // a full-width one reads as the sheet's own boundary, which is what it is.
+                .when(above, |element| {
+                    element.child(clip_edge(cx).top_0().left_0().right_0())
+                })
+                .when(below, |element| {
+                    element.child(clip_edge(cx).bottom_0().left_0().right_0())
+                }),
         )
 }
 
 /// The horizontal padding a `Sheet` puts on its body.
 const SHEET_PADDING: Pixels = px(16.);
+
+/// The content pane's own horizontal padding, carried by the header and by the scrolling cards
+/// rather than by the pane, so the scroll area can run full width underneath both.
+const PANE_PADDING: Pixels = px(16.);
+
+/// Whether a scroll area is hiding content above it and below it.
+fn clipped(handle: &ScrollHandle) -> (bool, bool) {
+    let max = f32::from(handle.max_offset().height);
+    if max <= 1. {
+        return (false, false);
+    }
+    let scrolled = -f32::from(handle.offset().y);
+    (scrolled > 0.5, scrolled < max - 0.5)
+}
+
+/// The rule that appears where a scroll area is cutting through its content.
+///
+/// Not a frame. A box around the list would be four lines to say what one line says, and three of
+/// them would be describing edges where nothing is being cut. This is drawn only on the side that
+/// is actually hiding something, and it is ink rather than a fade because nothing else in this
+/// interface has a soft edge.
+fn clip_edge(cx: &App) -> Div {
+    div().absolute().h(px(2.)).bg(cx.theme().foreground)
+}
 
 /// What a `Sheet`'s own title row and footer row occupy, measured (122) plus 2px of slack.
 ///
@@ -125,6 +178,9 @@ pub struct MainView {
     editor_subscription: Option<Subscription>,
     /// So picking a task in the sidebar can bring its card into view.
     task_list: ScrollHandle,
+    /// The open sheet.s form area. One handle serves both editors: only one sheet is ever open,
+    /// and opening the next one rewinds it.
+    sheet_scroll: ScrollHandle,
 
     /// The live trigger runners. Dropping this stops every one of them.
     triggers: TriggerHost,
@@ -156,6 +212,7 @@ impl MainView {
             route: Route::Tasks,
             editor_subscription: None,
             task_list: ScrollHandle::new(),
+            sheet_scroll: ScrollHandle::new(),
             triggers,
             trigger_errors: HashMap::new(),
             next_runs: HashMap::new(),
@@ -417,18 +474,28 @@ impl MainView {
 
         // The builder runs once a frame, so it may only clone and read — never act.
         let editor = editor.clone();
+        let scroll = self.sheet_scroll.clone();
+        let notify = self.sheet_notifier(cx);
         window.open_sheet(cx, move |sheet, window, cx| {
-            editor_sheet(sheet, window, px(470.), editor.clone())
-                .title(strings::task_editor_title())
-                .footer(TaskEditor::footer(&editor, cx))
-                // Esc, the ✕ and — were it enabled — the overlay all arrive here. Save closes
-                // the sheet itself and never reaches this, so this is only ever "gave up".
-                .on_close({
-                    let editor = editor.clone();
-                    move |_, _, cx| {
-                        editor.update(cx, |_, cx| cx.emit(TaskEditorEvent::Cancelled));
-                    }
-                })
+            editor_sheet(
+                sheet,
+                window,
+                cx,
+                px(470.),
+                &scroll,
+                notify.clone(),
+                editor.clone(),
+            )
+            .title(strings::task_editor_title())
+            .footer(TaskEditor::footer(&editor, cx))
+            // Esc, the ✕ and — were it enabled — the overlay all arrive here. Save closes
+            // the sheet itself and never reaches this, so this is only ever "gave up".
+            .on_close({
+                let editor = editor.clone();
+                move |_, _, cx| {
+                    editor.update(cx, |_, cx| cx.emit(TaskEditorEvent::Cancelled));
+                }
+            })
         });
         cx.notify();
     }
@@ -477,16 +544,26 @@ impl MainView {
         ));
 
         let editor = editor.clone();
-        window.open_sheet(cx, move |sheet, window, _| {
-            editor_sheet(sheet, window, px(760.), editor.clone())
-                .title(TaskWorkspace::heading(routing))
-                .footer(TaskWorkspace::footer(&editor))
-                .on_close({
-                    let editor = editor.clone();
-                    move |_, _, cx| {
-                        editor.update(cx, |_, cx| cx.emit(TaskWorkspaceEvent::Cancelled));
-                    }
-                })
+        let scroll = self.sheet_scroll.clone();
+        let notify = self.sheet_notifier(cx);
+        window.open_sheet(cx, move |sheet, window, cx| {
+            editor_sheet(
+                sheet,
+                window,
+                cx,
+                px(760.),
+                &scroll,
+                notify.clone(),
+                editor.clone(),
+            )
+            .title(TaskWorkspace::heading(routing))
+            .footer(TaskWorkspace::footer(&editor))
+            .on_close({
+                let editor = editor.clone();
+                move |_, _, cx| {
+                    editor.update(cx, |_, cx| cx.emit(TaskWorkspaceEvent::Cancelled));
+                }
+            })
         });
         cx.notify();
     }
@@ -965,6 +1042,21 @@ impl MainView {
         cx.notify();
     }
 
+    /// Repaints this view, which is what redraws the open sheet: `Root::render_sheet_layer` runs
+    /// inside this view's own render. Handed to the sheet's rail, whose drag writes straight to a
+    /// `ScrollHandle` that nothing else is watching.
+    ///
+    /// Rewinds the shared handle at the same time, so the next sheet opens at its top rather than
+    /// wherever the last one was left.
+    fn sheet_notifier(&self, cx: &mut Context<Self>) -> ScrollNotify {
+        self.sheet_scroll.set_offset(point(px(0.), px(0.)));
+
+        let view = cx.entity().downgrade();
+        Rc::new(move |_window, cx: &mut App| {
+            view.update(cx, |_, cx| cx.notify()).ok();
+        })
+    }
+
     fn render_main_pane(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let cards: Vec<_> = self
             .workspace
@@ -974,23 +1066,41 @@ impl MainView {
             .collect();
         let all_expanded = self.workspace.all_expanded();
 
+        let (above, below) = clipped(&self.task_list);
+        let view = cx.entity().downgrade();
+
         v_flex()
             .flex_1()
             .min_w_0()
             .h_full()
             .overflow_hidden()
             .bg(cx.theme().background)
-            .px(px(16.))
             .py(px(12.))
-            .child(self.render_header(all_expanded, cx))
-            .when(self.workspace.config_unreadable(), |element| {
-                element.child(div().pb(px(12.)).child(config_unreadable_banner()))
-            })
-            .when(cards.is_empty(), |element| element.child(empty_state(cx)))
             .child(
-                // The scrolling box sits inside a relative wrapper because `Scrollbar` lays
-                // itself out absolutely over its parent — as a child of the scroll area it
-                // would scroll away with the content it is measuring.
+                div()
+                    .mx(PANE_PADDING)
+                    .child(self.render_header(all_expanded, cx)),
+            )
+            .when(self.workspace.config_unreadable(), |element| {
+                element.child(
+                    div()
+                        .mx(PANE_PADDING)
+                        .pb(px(12.))
+                        .child(config_unreadable_banner()),
+                )
+            })
+            .when(cards.is_empty(), |element| {
+                element.child(div().mx(PANE_PADDING).child(empty_state(cx)))
+            })
+            .child(
+                // The scroll area runs the full width of the pane and the cards carry the pane's
+                // padding themselves. That is what puts the rail in margin that already existed
+                // instead of on top of a card, without taking a pixel off the cards or breaking
+                // their alignment with the header above.
+                //
+                // The wrapper is `relative` because the rail and the clipped-edge rules both lay
+                // themselves out absolutely — as children of the scroll area they would scroll
+                // away with the content they are describing.
                 div()
                     .relative()
                     .flex()
@@ -1003,15 +1113,31 @@ impl MainView {
                             .size_full()
                             .overflow_y_scroll()
                             .track_scroll(&self.task_list)
+                            .px(PANE_PADDING)
                             .children(cards),
                     )
-                    // `Always` rather than the theme's default, which fades the bar out two
-                    // seconds after the last scroll. It still hides itself when everything
-                    // fits, so what is left is exactly the signal wanted: a bar means there is
-                    // more above or below.
                     .child(
-                        Scrollbar::vertical(&self.task_list).scrollbar_show(ScrollbarShow::Always),
-                    ),
+                        ScrollRail::vertical("task-rail", &self.task_list).on_scroll({
+                            let view = view.clone();
+                            move |_, cx| {
+                                view.update(cx, |_, cx| cx.notify()).ok();
+                            }
+                        }),
+                    )
+                    // Inset to the cards rather than run wall to wall: in a column of card edges
+                    // one more edge that lines up with them reads as the list's own boundary,
+                    // where a longer rule would read as a lid laid over the card it cuts.
+                    .when(above, |element| {
+                        element.child(clip_edge(cx).top_0().left(PANE_PADDING).right(PANE_PADDING))
+                    })
+                    .when(below, |element| {
+                        element.child(
+                            clip_edge(cx)
+                                .bottom_0()
+                                .left(PANE_PADDING)
+                                .right(PANE_PADDING),
+                        )
+                    }),
             )
     }
 
@@ -1221,7 +1347,6 @@ impl MainView {
                                         Button::new(SharedString::from(format!("stop-{id}")))
                                             .icon(Glyph::Stop)
                                             .danger()
-                                            .outline()
                                             .small()
                                             .tooltip(strings::task_stop_tip())
                                             .on_click(cx.listener(move |view, _, _, cx| {
@@ -1231,7 +1356,6 @@ impl MainView {
                                         Button::new(SharedString::from(format!("run-{id}")))
                                             .icon(Glyph::Run)
                                             .primary()
-                                            .outline()
                                             .small()
                                             .tooltip(strings::task_run_now_tip())
                                             .disabled(task.destinations.is_empty())

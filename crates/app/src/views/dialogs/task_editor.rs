@@ -299,10 +299,12 @@ impl Render for TaskEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let source = self.source_text(cx);
         let conflict = self.source_conflict(cx);
+        // One directory probe, not a tree walk. `render` runs on every frame of the sheet's
+        // slide-in and on every mouse move while its scrollbar is dragged, and the walk this
+        // replaces enumerated the whole source tree each of those times.
         let missing_folder = !source.is_empty()
             && conflict.is_none()
-            && !self.file_system.file_exists(Path::new(&source))
-            && self.file_system.list_tree(Path::new(&source)).is_err();
+            && !self.file_system.directory_exists(Path::new(&source));
 
         v_form()
             .child(

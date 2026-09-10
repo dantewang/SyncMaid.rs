@@ -349,6 +349,10 @@ impl FileSystem for InMemoryFileSystem {
         self.lock().files.contains_key(&key_of(path))
     }
 
+    fn directory_exists(&self, path: &Path) -> bool {
+        InMemoryFileSystem::directory_exists(self, path)
+    }
+
     fn get_stamp(&self, path: &Path) -> io::Result<FileStamp> {
         let mut state = self.lock();
         state.observed.get_stamp_calls += 1;

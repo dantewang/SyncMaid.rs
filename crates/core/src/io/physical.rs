@@ -68,6 +68,10 @@ impl FileSystem for PhysicalFileSystem {
         path.is_file()
     }
 
+    fn directory_exists(&self, path: &Path) -> bool {
+        path.is_dir()
+    }
+
     fn get_stamp(&self, path: &Path) -> io::Result<FileStamp> {
         let metadata = fs::metadata(path)?;
         Ok(FileStamp::new(metadata.len(), to_utc(metadata.modified()?)))

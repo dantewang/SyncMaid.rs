@@ -22,6 +22,13 @@ pub trait FileSystem: Send + Sync {
     /// True when a file exists at `path`.
     fn file_exists(&self, path: &Path) -> bool;
 
+    /// True when a directory exists at `path`.
+    ///
+    /// Cheap on purpose. The alternative — asking [`FileSystem::list_tree`] whether it errors —
+    /// answers the same question by walking the entire tree, which is a fine cost once per run
+    /// and a ruinous one anywhere it might be asked repeatedly.
+    fn directory_exists(&self, path: &Path) -> bool;
+
     /// The stamp of the file at `path`. Fails if it does not exist.
     fn get_stamp(&self, path: &Path) -> io::Result<FileStamp>;
 

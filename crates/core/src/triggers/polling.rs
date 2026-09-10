@@ -368,6 +368,9 @@ mod tests {
             fn file_exists(&self, path: &Path) -> bool {
                 self.inner.file_exists(path)
             }
+            fn directory_exists(&self, path: &Path) -> bool {
+                FileSystem::directory_exists(&self.inner, path)
+            }
             fn get_stamp(&self, path: &Path) -> std::io::Result<crate::io::FileStamp> {
                 self.inner.get_stamp(path)
             }

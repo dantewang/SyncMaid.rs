@@ -103,14 +103,14 @@ fn editor_sheet(
                     let notify = notify.clone();
                     move |window, cx| notify(window, cx)
                 }))
-                // Wall to wall here, unlike the task list. A sheet's form is one object rather
-                // than a column of cards, so there is no run of edges for a short rule to join;
-                // a full-width one reads as the sheet's own boundary, which is what it is.
+                // Stops where the form stops, the same as in the task list. Running it the full
+                // width of the body put its right end past the rail's own hairline, which reads
+                // as a rule that missed rather than one that measures something.
                 .when(above, |element| {
-                    element.child(clip_edge(cx).top_0().left_0().right_0())
+                    element.child(clip_edge(cx).top_0().left_0().right(RAIL_WIDTH))
                 })
                 .when(below, |element| {
-                    element.child(clip_edge(cx).bottom_0().left_0().right_0())
+                    element.child(clip_edge(cx).bottom_0().left_0().right(RAIL_WIDTH))
                 }),
         )
 }

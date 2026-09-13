@@ -92,7 +92,7 @@ pub fn set_language(tag: Option<&str>) -> bool {
     // The component library carries UI strings of its own — the settings search box, the
     // dialog buttons — behind its own catalogue, keyed by its own tags. Left unset they stay
     // English while the rest of the window changes language.
-    gpui_component::set_locale(component_locale(chosen));
+    gpui_kit::component::set_locale(component_locale(chosen));
     ACTIVE.swap(chosen, Ordering::Relaxed) != chosen
 }
 

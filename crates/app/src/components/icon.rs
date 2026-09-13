@@ -9,8 +9,8 @@
 //! Implementing [`IconNamed`] is the library's own extension point: a `Glyph` goes anywhere an
 //! `IconName` does — `Button::icon`, `SidebarMenuItem::icon`, `Icon::new`, `Alert::icon`.
 
-use gpui::SharedString;
-use gpui_component::{IconName, IconNamed};
+use gpui_kit::component::{IconName, IconNamed};
+use gpui_kit::SharedString;
 
 /// See the module docs. Adding a variant means either finding an `IconName` for it or dropping
 /// its Lucide SVG into `assets/icons`.
@@ -126,7 +126,7 @@ fn supplement(name: &str) -> SharedString {
 
 #[cfg(test)]
 mod tests {
-    use gpui::AssetSource;
+    use gpui_kit::AssetSource;
 
     use super::*;
     use crate::assets::Assets;

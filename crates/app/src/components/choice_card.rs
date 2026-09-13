@@ -4,17 +4,17 @@
 //! Mirror versus Add-only. Each card carries a sentence saying what it will do to the user's
 //! files, because that is the decision being made.
 //!
-//! Deliberately not a `gpui_component::radio::RadioGroup`: `Radio::label` is one line, and
+//! Deliberately not a `gpui_kit::component::radio::RadioGroup`: `Radio::label` is one line, and
 //! folding "Mirror deletes anything the source does not have" into a label or hiding it in a
 //! tooltip trades away the sentence that stops the mistake. Everything about its *appearance*
 //! comes from the theme, so it follows the palette like the built-in components do — the only
 //! thing bespoke here is the shape.
 
-use gpui::{
+use gpui_kit::component::{ActiveTheme as _, Icon};
+use gpui_kit::{
     div, prelude::*, px, App, ClickEvent, ElementId, FontWeight, IntoElement, RenderOnce,
     SharedString, Window,
 };
-use gpui_component::{ActiveTheme as _, Icon};
 
 use crate::components::Glyph;
 

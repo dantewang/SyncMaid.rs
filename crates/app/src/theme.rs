@@ -10,8 +10,8 @@
 
 use std::rc::Rc;
 
-use gpui::{px, App, Pixels};
-use gpui_component::{Theme, ThemeMode, ThemeSet};
+use gpui_kit::component::{Theme, ThemeMode, ThemeSet};
+use gpui_kit::{px, App, Pixels};
 
 /// The theme set, compiled in.
 ///
@@ -24,7 +24,7 @@ const THEMES: &str = include_str!("../assets/themes/porcelain.json");
 /// The theme SyncMaid wears. Light only, as the Avalonia build was.
 const ACTIVE: &str = "Porcelain";
 
-/// Applies [`ACTIVE`]. Call once, after `gpui_component::init`.
+/// Applies [`ACTIVE`]. Call once, after `gpui_kit::init`.
 pub fn install(cx: &mut App) {
     let set: ThemeSet = match serde_json::from_str(THEMES) {
         Ok(set) => set,
@@ -44,6 +44,11 @@ pub fn install(cx: &mut App) {
     // Explicit rather than relying on the default: the mode decides which of the set's two
     // themes is the one being drawn.
     Theme::change(ThemeMode::Light, None, cx);
+
+    // Sheets start at the top of the client area, not below the library's default title-bar
+    // allowance: that leaves room for a drawn title bar, and ours is the system's — the client
+    // area already starts below it.
+    Theme::global_mut(cx).sheet.margin_top = px(0.);
 }
 
 /// The one type size the theme's own scale does not cover.

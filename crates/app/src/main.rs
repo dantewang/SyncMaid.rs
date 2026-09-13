@@ -10,11 +10,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Result;
-use gpui::{
-    px, size, App, AppContext as _, Application, Bounds, Entity, TitlebarOptions, WindowBounds,
-    WindowOptions,
+use gpui_kit::component::Root;
+use gpui_kit::{
+    px, size, App, AppContext as _, Bounds, Entity, TitlebarOptions, WindowBounds, WindowOptions,
 };
-use gpui_component::Root;
 use syncmaid::platform::tray::{TrayCommand, TrayLabels};
 use syncmaid::state::Workspace;
 use syncmaid::views::MainView;
@@ -58,10 +57,10 @@ fn main() {
 
     let file_system: Arc<dyn FileSystem> = Arc::new(PhysicalFileSystem::new());
 
-    Application::new()
+    gpui_kit::application()
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
-            gpui_component::init(cx);
+            gpui_kit::init(cx);
             theme::install(cx);
 
             let workspace = Workspace::load(Arc::clone(&file_system), &config);
@@ -115,7 +114,7 @@ fn open_main_window(
     file_system: Arc<dyn FileSystem>,
     start_minimized: bool,
     cx: &mut App,
-) -> Result<(gpui::WindowHandle<Root>, Entity<MainView>)> {
+) -> Result<(gpui_kit::WindowHandle<Root>, Entity<MainView>)> {
     let captured: Rc<RefCell<Option<Entity<MainView>>>> = Rc::default();
     // Logical pixels: gpui applies the display scale itself. Scaling the request here as well
     // opens a window that is scale-times too big, with the UI painting its true logical size
@@ -148,7 +147,7 @@ fn open_main_window(
                 let view = cx.new(|cx| MainView::new(workspace, file_system, cx));
                 *captured.borrow_mut() = Some(view.clone());
                 // Root is what gives the window its dialog, sheet and notification layers.
-                let any: gpui::AnyView = view.into();
+                let any: gpui_kit::AnyView = view.into();
                 cx.new(|cx| Root::new(any, window, cx))
             }
         },
@@ -165,7 +164,7 @@ fn open_main_window(
 ///
 /// Only a user closing the window reaches here. The tray's Exit quits the app outright, which
 /// is what keeps Exit able to actually exit.
-fn close_to_tray(window: gpui::WindowHandle<Root>, view: Entity<MainView>, cx: &mut App) {
+fn close_to_tray(window: gpui_kit::WindowHandle<Root>, view: Entity<MainView>, cx: &mut App) {
     let _ = window.update(cx, |_, window, cx| {
         window.on_window_should_close(cx, move |window, cx| {
             let hide = view.read(cx).close_to_tray();
@@ -183,19 +182,18 @@ fn close_to_tray(window: gpui::WindowHandle<Root>, view: Entity<MainView>, cx: &
 /// Showing the window is what the second launch almost always meant.
 fn answer_later_launches(
     cx: &mut App,
-    window: gpui::WindowHandle<Root>,
+    window: gpui_kit::WindowHandle<Root>,
     knocks: flume::Receiver<()>,
 ) {
     cx.spawn(async move |cx| {
         while knocks.recv_async().await.is_ok() {
-            let shown = cx.update(|cx| {
+            // No "is the app still there" check: this task lives on the app's own executor,
+            // so it is dropped along with the app rather than woken after it.
+            cx.update(|cx| {
                 let _ = window.update(cx, |_, window, _| {
                     platform::window_visibility::show(window);
                 });
             });
-            if shown.is_err() {
-                return;
-            }
         }
     })
     .detach();
@@ -203,7 +201,7 @@ fn answer_later_launches(
 
 /// Wires the tray to the window: its commands arrive on a channel from the tray's own thread
 /// and are applied here, on the UI thread.
-fn start_tray(cx: &mut App, window: gpui::WindowHandle<Root>) -> Result<()> {
+fn start_tray(cx: &mut App, window: gpui_kit::WindowHandle<Root>) -> Result<()> {
     let commands = platform::tray::start(TrayLabels {
         // The product name, which is not translated.
         tooltip: "SyncMaid".into(),
@@ -213,17 +211,16 @@ fn start_tray(cx: &mut App, window: gpui::WindowHandle<Root>) -> Result<()> {
 
     cx.spawn(async move |cx| {
         while let Ok(command) = commands.recv_async().await {
-            let applied = cx.update(|cx| match command {
-                TrayCommand::ShowMainWindow => {
+            match command {
+                TrayCommand::ShowMainWindow => cx.update(|cx| {
                     let _ = window.update(cx, |_, window, _| {
                         platform::window_visibility::show(window);
                     });
+                }),
+                TrayCommand::Exit => {
+                    cx.update(|cx| cx.quit());
+                    break;
                 }
-                TrayCommand::Exit => cx.quit(),
-            });
-
-            if applied.is_err() {
-                break;
             }
         }
     })

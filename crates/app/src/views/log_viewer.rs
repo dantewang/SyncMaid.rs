@@ -17,14 +17,14 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui::{
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::scroll::{Scrollbar, ScrollbarMode};
+use gpui_kit::component::{
+    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
+};
+use gpui_kit::{
     div, prelude::*, px, size, App, Bounds, Context, Entity, FontWeight, ScrollHandle,
     SharedString, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions,
-};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::scroll::{Scrollbar, ScrollbarShow};
-use gpui_component::{
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
 };
 use uuid::Uuid;
 
@@ -116,7 +116,7 @@ pub fn open(request: LogRequest, cx: &mut App) -> Option<OpenLogViewer> {
                     *captured.borrow_mut() = Some(view.clone());
                     // Wrapped in `Root` like every other window of ours: the library's
                     // components expect its layers to exist.
-                    let any: gpui::AnyView = view.into();
+                    let any: gpui_kit::AnyView = view.into();
                     cx.new(|cx| Root::new(any, window, cx))
                 }
             },
@@ -302,7 +302,7 @@ impl LogViewer {
             // `Always` rather than the theme's default, which fades the bar out two seconds
             // after the last scroll. It still hides itself when everything fits, so what is
             // left is exactly the signal wanted: a bar means there is more above or below.
-            .child(Scrollbar::vertical(&self.scroll).scrollbar_show(ScrollbarShow::Always))
+            .child(Scrollbar::vertical(&self.scroll).mode(ScrollbarMode::Always))
     }
 
     fn render_line(&self, line: &LogLine, cx: &App) -> impl IntoElement {

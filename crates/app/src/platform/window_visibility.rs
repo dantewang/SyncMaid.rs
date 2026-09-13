@@ -9,7 +9,7 @@
 //! Hiding is not quite enough on its own: gpui un-hides the window behind our back whenever a
 //! display disappears. [`keep_hidden_across_display_changes`] is the answer to that.
 
-use gpui::Window;
+use gpui_kit::Window;
 
 /// Hides the window: gone from screen and taskbar, still alive.
 pub fn hide(window: &Window) -> bool {
@@ -64,7 +64,7 @@ fn set_visible(window: &Window, visible: bool) -> bool {
 mod platform {
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use gpui::Window;
+    use gpui_kit::Window;
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
@@ -171,7 +171,7 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    use gpui::Window;
+    use gpui_kit::Window;
 
     pub(super) fn set_visible(_window: &Window, _visible: bool) -> bool {
         false

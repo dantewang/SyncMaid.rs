@@ -12,12 +12,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui::{
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::{ActiveTheme as _, Icon, Root};
+use gpui_kit::{
     div, prelude::*, px, size, App, Bounds, Context, FontWeight, TitlebarOptions, Window,
     WindowBounds, WindowKind, WindowOptions,
 };
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{ActiveTheme as _, Icon, Root};
 use syncmaid_core::model::{DeleteMode, Destination};
 use syncmaid_core::sync::MirrorDeletePreview;
 
@@ -117,7 +117,7 @@ impl Render for ConfirmMirrorDelete {
                 div()
                     .h(px(8.))
                     .w_full()
-                    .bg(gpui::pattern_slash(cx.theme().danger, 6., 6.))
+                    .bg(gpui_kit::pattern_slash(cx.theme().danger, 6., 6.))
                     .border_b_2()
                     .border_color(cx.theme().foreground),
             )
@@ -259,7 +259,7 @@ pub fn ask(
             // rendering environment.
             move |window, cx| {
                 let view = cx.new(|_| ConfirmMirrorDelete::new(&destination, preview, answer));
-                let any: gpui::AnyView = view.into();
+                let any: gpui_kit::AnyView = view.into();
                 cx.new(|cx| Root::new(any, window, cx))
             },
         )

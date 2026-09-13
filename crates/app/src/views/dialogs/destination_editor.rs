@@ -7,13 +7,15 @@
 
 use std::path::Path;
 
-use gpui::{div, prelude::*, px, App, Context, Entity, PathPromptOptions, SharedString, Window};
-use gpui_component::button::{Button, ButtonGroup, ButtonVariants as _};
-use gpui_component::form::{field, v_form, Field};
-use gpui_component::input::{Input, InputState};
-use gpui_component::{
+use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
+use gpui_kit::component::form::{field, v_form, Field};
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::{
     alert::Alert, checkbox::Checkbox, h_flex, v_flex, ActiveTheme as _, Icon, Selectable as _,
     Sizable as _, Size,
+};
+use gpui_kit::{
+    div, prelude::*, px, App, Context, Entity, PathPromptOptions, SharedString, Window,
 };
 use syncmaid_core::io::{is_network, paths_overlap};
 use syncmaid_core::model::{

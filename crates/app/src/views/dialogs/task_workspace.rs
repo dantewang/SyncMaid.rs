@@ -6,13 +6,13 @@
 
 use std::sync::Arc;
 
-use gpui::{
-    div, prelude::*, px, App, Context, Entity, EventEmitter, FontWeight, SharedString, Window,
-};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::{
     alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
     Size,
+};
+use gpui_kit::{
+    div, prelude::*, px, App, Context, Entity, EventEmitter, FontWeight, SharedString, Window,
 };
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{Destination, SyncStrategy, SyncTask, SyncTaskKind};
@@ -652,7 +652,7 @@ impl TaskWorkspace {
                                     .gap(px(8.))
                                     .child(
                                         div()
-                                            .flex_shrink()
+                                            .flex_shrink_1()
                                             .min_w_0()
                                             .overflow_hidden()
                                             .whitespace_nowrap()
@@ -667,7 +667,7 @@ impl TaskWorkspace {
                                     )
                                     .child(
                                         div()
-                                            .flex_shrink()
+                                            .flex_shrink_1()
                                             .min_w_0()
                                             .overflow_hidden()
                                             .whitespace_nowrap()

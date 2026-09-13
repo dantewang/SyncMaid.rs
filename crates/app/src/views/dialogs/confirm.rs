@@ -1,8 +1,7 @@
 //! The wording of the two destructive confirmations.
 //!
-//! Not a view any more: `gpui_component::dialog::Dialog` draws the card, the title and the button
-//! row, so all that is left is deciding what the question says and how loud the accept button
-//! should be.
+//! Not a view any more: `gpui_kit::component::dialog::Dialog` draws the card and the title, so
+//! all that is left is deciding what the question says and how loud the accept button should be.
 //!
 //! The footer is spelled out rather than taken from `Dialog::confirm()`, and that is the point.
 //! `confirm()` wires the accept action to `on_ok`, which the library also binds to Enter — and a
@@ -12,9 +11,9 @@
 
 use std::rc::Rc;
 
-use gpui::{div, prelude::*, px, App, SharedString, Window};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::{ActiveTheme as _, WindowExt as _};
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::{h_flex, ActiveTheme as _, WindowExt as _};
+use gpui_kit::{div, prelude::*, px, App, SharedString, Window};
 
 use crate::strings;
 
@@ -89,30 +88,34 @@ impl Prompt {
                 .title(self.title.clone())
                 .close_button(false)
                 .overlay_closable(false)
-                .footer(move |_, _, _, _| {
-                    let accepted = Rc::clone(&accepted);
-                    vec![
-                        Button::new("confirm-cancel")
-                            .label(strings::common_cancel())
-                            .outline()
-                            .on_click(|_, window, cx| window.close_dialog(cx))
-                            .into_any_element(),
-                        Button::new("confirm-ok")
-                            .label(confirm_label.clone())
-                            .map(|button| {
-                                if destructive {
-                                    button.danger()
-                                } else {
-                                    button.primary()
-                                }
-                            })
-                            .on_click(move |_, window, cx| {
-                                window.close_dialog(cx);
-                                accepted(window, cx);
-                            })
-                            .into_any_element(),
-                    ]
-                })
+                .footer(
+                    // The library draws the footer as given, so the row the old one laid out
+                    // for us — end-aligned, spaced — is ours to lay out now.
+                    h_flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(
+                            Button::new("confirm-cancel")
+                                .label(strings::common_cancel())
+                                .outline()
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("confirm-ok")
+                                .label(confirm_label)
+                                .map(|button| {
+                                    if destructive {
+                                        button.danger()
+                                    } else {
+                                        button.primary()
+                                    }
+                                })
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    accepted(window, cx);
+                                }),
+                        ),
+                )
                 .child(
                     div()
                         .text_color(cx.theme().muted_foreground)

@@ -54,6 +54,26 @@
         "info.hover.background": "#1683A6",
         "info.active.background": "#0C4C61",
 
+        "button.danger.background": "#C62F3C",
+        "button.danger.foreground": "#F2F6F7",
+        "button.danger.hover.background": "#D34450",
+        "button.danger.active.background": "#A82430",
+
+        "button.warning.background": "#8A6410",
+        "button.warning.foreground": "#FBF1DC",
+        "button.warning.hover.background": "#A0761C",
+        "button.warning.active.background": "#6E4F09",
+
+        "button.success.background": "#191C22",
+        "button.success.foreground": "#F2F6F7",
+        "button.success.hover.background": "#2B3038",
+        "button.success.active.background": "#0E1116",
+
+        "button.info.background": "#116F8E",
+        "button.info.foreground": "#F2F6F7",
+        "button.info.hover.background": "#1683A6",
+        "button.info.active.background": "#0C4C61",
+
         "ring": "#116F8E",
         "caret": "#191C22",
         "selection.background": "#A5E5EF",

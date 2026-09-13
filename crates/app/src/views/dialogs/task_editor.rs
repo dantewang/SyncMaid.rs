@@ -3,13 +3,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use gpui::{
+use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
+use gpui_kit::component::form::{field, v_form, Field};
+use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::{alert::Alert, h_flex, v_flex, Disableable as _, Selectable as _};
+use gpui_kit::{
     div, prelude::*, px, App, Context, Entity, EventEmitter, FontWeight, PathPromptOptions, Window,
 };
-use gpui_component::button::{Button, ButtonGroup, ButtonVariants as _};
-use gpui_component::form::{field, v_form, Field};
-use gpui_component::input::{Input, InputState};
-use gpui_component::{alert::Alert, h_flex, v_flex, Disableable as _, Selectable as _};
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{Destination, SyncTask, SyncTaskKind};
 use syncmaid_core::triggers::{

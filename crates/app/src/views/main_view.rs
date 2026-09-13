@@ -7,17 +7,17 @@ use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset, Local};
 
-use gpui::{
-    div, point, prelude::*, px, relative, App, Context, Div, Entity, FontWeight, Hsla, Pixels,
-    ScrollHandle, SharedString, Stateful, Subscription, Window,
-};
-use gpui_component::button::{Button, ButtonVariants as _};
-use gpui_component::link::Link;
-use gpui_component::sheet::Sheet;
-use gpui_component::tooltip::Tooltip;
-use gpui_component::{
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::link::Link;
+use gpui_kit::component::sheet::Sheet;
+use gpui_kit::component::tooltip::Tooltip;
+use gpui_kit::component::{
     alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Root,
     Selectable as _, Sizable as _, WindowExt as _,
+};
+use gpui_kit::{
+    div, point, prelude::*, px, relative, App, Context, Div, Entity, FontWeight, Hsla, Pixels,
+    ScrollHandle, SharedString, Stateful, Subscription, Window,
 };
 use syncmaid_core::io::FileSystem;
 use syncmaid_core::model::{
@@ -73,46 +73,40 @@ fn editor_sheet(
     let width = px(f32::from(preferred).min(f32::from(viewport.width) - 48.));
     let (above, below) = clipped(scroll);
 
-    sheet
-        .size(width)
-        .overlay_closable(false)
-        // Zero, not the default: that default leaves room for the library's own drawn title
-        // bar, and ours is the system's — the client area already starts below it.
-        .margin_top(px(0.))
-        .child(
-            // The form gives up the rail's width rather than sharing it. There is no spare
-            // margin in a sheet the way there is in the content pane — the sheet sets its own
-            // width — so the choice is between a narrower form and a bar across the fields.
-            div()
-                .relative()
-                .flex()
-                .flex_col()
-                .w(width - SHEET_PADDING * 2.)
-                .child(
-                    div()
-                        .id("sheet-body")
-                        .w_full()
-                        .max_h(viewport.height - SHEET_CHROME)
-                        .overflow_hidden()
-                        .overflow_y_scroll()
-                        .track_scroll(scroll)
-                        .pr(RAIL_WIDTH)
-                        .child(body),
-                )
-                .child(ScrollRail::vertical("sheet-rail", scroll).on_scroll({
-                    let notify = notify.clone();
-                    move |window, cx| notify(window, cx)
-                }))
-                // Stops where the form stops, the same as in the task list. Running it the full
-                // width of the body put its right end past the rail's own hairline, which reads
-                // as a rule that missed rather than one that measures something.
-                .when(above, |element| {
-                    element.child(clip_edge(cx).top_0().left_0().right(RAIL_WIDTH))
-                })
-                .when(below, |element| {
-                    element.child(clip_edge(cx).bottom_0().left_0().right(RAIL_WIDTH))
-                }),
-        )
+    sheet.size(width).overlay_closable(false).child(
+        // The form gives up the rail's width rather than sharing it. There is no spare
+        // margin in a sheet the way there is in the content pane — the sheet sets its own
+        // width — so the choice is between a narrower form and a bar across the fields.
+        div()
+            .relative()
+            .flex()
+            .flex_col()
+            .w(width - SHEET_PADDING * 2.)
+            .child(
+                div()
+                    .id("sheet-body")
+                    .w_full()
+                    .max_h(viewport.height - SHEET_CHROME)
+                    .overflow_hidden()
+                    .overflow_y_scroll()
+                    .track_scroll(scroll)
+                    .pr(RAIL_WIDTH)
+                    .child(body),
+            )
+            .child(ScrollRail::vertical("sheet-rail", scroll).on_scroll({
+                let notify = notify.clone();
+                move |window, cx| notify(window, cx)
+            }))
+            // Stops where the form stops, the same as in the task list. Running it the full
+            // width of the body put its right end past the rail's own hairline, which reads
+            // as a rule that missed rather than one that measures something.
+            .when(above, |element| {
+                element.child(clip_edge(cx).top_0().left_0().right(RAIL_WIDTH))
+            })
+            .when(below, |element| {
+                element.child(clip_edge(cx).bottom_0().left_0().right(RAIL_WIDTH))
+            }),
+    )
 }
 
 /// The horizontal padding a `Sheet` puts on its body.
@@ -124,7 +118,7 @@ const PANE_PADDING: Pixels = px(16.);
 
 /// Whether a scroll area is hiding content above it and below it.
 fn clipped(handle: &ScrollHandle) -> (bool, bool) {
-    let max = f32::from(handle.max_offset().height);
+    let max = f32::from(handle.max_offset().y);
     if max <= 1. {
         return (false, false);
     }
@@ -682,7 +676,7 @@ impl MainView {
                 .spawn(async move { engine.preview_mirror_deletions(&task, destination_id) })
                 .await;
 
-            let _ = cx.update(|cx| {
+            cx.update(|cx| {
                 if preview.count == 0 {
                     // The situation resolved — the source came back, say — so there is nothing
                     // to confirm and the run can simply go.
@@ -1622,7 +1616,7 @@ fn task_row(id: Uuid, name: &str, outcome: SyncOutcome, active: bool, cx: &App) 
         .border_color(if active {
             cx.theme().foreground
         } else {
-            gpui::transparent_black()
+            gpui_kit::transparent_black()
         })
         .when(active, |row| row.bg(cx.theme().background))
         .cursor_pointer()

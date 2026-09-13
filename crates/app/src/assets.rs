@@ -5,7 +5,7 @@
 //! embeds no SVGs of its own, and hands the job to whichever `AssetSource` the application
 //! registers.
 //!
-//! Two sources, one namespace. `gpui-component-assets` carries the Lucide file behind every
+//! Two sources, one namespace. `gpui_kit::assets` carries the Lucide file behind every
 //! `IconName`; this crate's `assets/icons` carries the dozen Lucide glyphs `IconName` has no
 //! variant for — Play, Stop, Refresh, Trash, Pencil, Clock, Funnel and friends, which is to say
 //! most of the verbs a sync app needs. Ours is consulted first, so a name we ship always wins.
@@ -13,7 +13,7 @@
 use std::borrow::Cow;
 
 use anyhow::anyhow;
-use gpui::{AssetSource, Result, SharedString};
+use gpui_kit::{AssetSource, Result, SharedString};
 use rust_embed::RustEmbed;
 
 #[derive(RustEmbed)]
@@ -35,7 +35,7 @@ impl AssetSource for Assets {
         }
         // Not ours, so it is one of `IconName`'s. Their source reports a miss as an error, which
         // is the right shape here too: a name in neither set renders as a silent blank.
-        gpui_component_assets::Assets
+        gpui_kit::assets::Assets
             .load(path)
             .map_err(|_| anyhow!("no embedded asset at {path:?}"))
     }
@@ -45,7 +45,7 @@ impl AssetSource for Assets {
             .filter(|candidate| candidate.starts_with(path))
             .map(|candidate| candidate.into())
             .collect();
-        listed.extend(gpui_component_assets::Assets.list(path)?);
+        listed.extend(gpui_kit::assets::Assets.list(path)?);
         Ok(listed)
     }
 }

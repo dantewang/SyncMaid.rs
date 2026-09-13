@@ -9,15 +9,15 @@
 
 use std::path::PathBuf;
 
-use gpui::{
+use gpui_kit::component::button::Button;
+use gpui_kit::{
     div, prelude::*, px, App, Context, Div, EventEmitter, FontWeight, SharedString, Window,
 };
-use gpui_component::button::Button;
 
-use gpui_component::alert::Alert;
-use gpui_component::button::ButtonGroup;
-use gpui_component::switch::Switch;
-use gpui_component::{h_flex, v_flex, ActiveTheme as _, Selectable as _, Sizable as _};
+use gpui_kit::component::alert::Alert;
+use gpui_kit::component::button::ButtonGroup;
+use gpui_kit::component::switch::Switch;
+use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Selectable as _, Sizable as _};
 use syncmaid_core::model::AppSettings;
 
 use crate::components::Glyph;
@@ -333,7 +333,7 @@ fn setting_row(
     description: &'static str,
     last: bool,
     cx: &App,
-) -> gpui::Stateful<Div> {
+) -> gpui_kit::Stateful<Div> {
     h_flex()
         .id(label)
         .py(px(11.))

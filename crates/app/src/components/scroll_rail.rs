@@ -1,6 +1,6 @@
 //! A scrollbar drawn in Porcelain's own terms: a hairline rail with a square tick.
 //!
-//! `gpui_component::Scrollbar` cannot be restyled into this. Its track width, thumb width and —
+//! `gpui_kit::component::Scrollbar` cannot be restyled into this. Its track width, thumb width and —
 //! the part that shows — its 3px corner radius are private constants with no theme tokens behind
 //! them, so on a theme whose `radius` is zero it renders the only rounded object on screen. At
 //! six pixels wide that reads less as a scrollbar than as something that failed to paint square.
@@ -12,11 +12,11 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui::{
+use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::{
     div, point, prelude::*, px, App, Context, DragMoveEvent, ElementId, Empty, Pixels, Render,
     ScrollHandle, Window,
 };
-use gpui_component::ActiveTheme as _;
 
 /// The column the rail reserves. The drawn parts are 1px and 3px; the rest is grab room.
 pub const RAIL_WIDTH: Pixels = px(16.);
@@ -95,7 +95,7 @@ impl ScrollRail {
 impl RenderOnce for ScrollRail {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
         let viewport = self.handle.bounds().size.height;
-        let max = self.handle.max_offset().height;
+        let max = self.handle.max_offset().y;
 
         // Nothing hidden, nothing drawn. Being absent when everything fits is what lets the bar
         // mean something when it is there.
@@ -145,7 +145,7 @@ impl RenderOnce for ScrollRail {
             )
             .on_drag_move(move |event: &DragMoveEvent<RailDrag>, window, cx| {
                 let viewport = handle.bounds().size.height;
-                let max = handle.max_offset().height;
+                let max = handle.max_offset().y;
                 let (_, travel) = tick_metrics(viewport, max);
                 if travel <= 0. {
                     return;

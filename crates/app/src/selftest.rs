@@ -11,8 +11,8 @@
 
 use std::time::Duration;
 
-use gpui::{App, WindowHandle};
-use gpui_component::Root;
+use gpui_kit::component::Root;
+use gpui_kit::{App, WindowHandle};
 
 use syncmaid::platform::window_visibility;
 
@@ -78,7 +78,7 @@ pub fn run_tray_gate(window: WindowHandle<Root>, cx: &mut App) {
         println!("[self-test] window restored");
         println!("[self-test] TRAY GATE PASSED");
 
-        cx.update(|cx| cx.quit()).expect("quit");
+        cx.update(|cx| cx.quit());
     })
     .detach();
 }

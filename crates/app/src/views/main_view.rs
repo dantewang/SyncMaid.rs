@@ -7,14 +7,6 @@ use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset, Local};
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::link::Link;
-use gpui_kit::component::sheet::Sheet;
-use gpui_kit::component::tooltip::Tooltip;
-use gpui_kit::component::{
-    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Root,
-    Selectable as _, Sizable as _, WindowExt as _,
-};
 use gpui_kit::{
     div, point, prelude::*, px, relative, App, Context, Div, Entity, FontWeight, Hsla, Pixels,
     ScrollHandle, SharedString, Stateful, Subscription, Window,
@@ -31,7 +23,10 @@ use crate::components::{Glyph, ScrollNotify, ScrollRail, RAIL_WIDTH};
 use crate::services::logging;
 use crate::state::{health_of, run_conflict, RunGate, TriggerEvent, TriggerHost, Workspace};
 use crate::strings;
-use crate::theme;
+use crate::theme::{self, ActiveTheme as _};
+use crate::ui::{
+    h_flex, v_flex, Alert, Button, Icon, Link, Root, Sheet, Tag, Tooltip, WindowExt as _,
+};
 use crate::views::dialogs::{
     Prompt, TaskEditor, TaskEditorEvent, TaskWorkspace, TaskWorkspaceEvent,
 };
@@ -52,12 +47,9 @@ const NEXT_RUN_REFRESH: Duration = Duration::from_secs(30);
 /// that a stray click outside throws away is not a trade worth taking: Esc and the ✕ are both
 /// still there, and both are deliberate.
 ///
-/// The wrapper around `body` is doing work the sheet does not do for itself. Its body is
-/// `flex_1` over an `overflow: scroll` on **both** axes, with no width and no `min-height: 0` —
-/// so unclamped content both widens the sheet (carrying a row's buttons off the right edge) and
-/// lengthens it (pushing the footer, and therefore Save, off the bottom). A dialog wraps its
-/// content in `w_full().overflow_hidden()` under a bounded height; this is the same wrapper,
-/// with real numbers so `text_ellipsis` has something definite to trim against.
+/// The sheet clamps its body to its own width and to the height between its title bar and its
+/// footer, so Save stays where it is however much the editor holds. What is left here is the
+/// scroll area inside that, with the rail beside it and the clipped-edge rules over it.
 fn editor_sheet(
     sheet: Sheet,
     window: &mut Window,
@@ -81,12 +73,15 @@ fn editor_sheet(
             .relative()
             .flex()
             .flex_col()
-            .w(width - SHEET_PADDING * 2.)
+            .flex_1()
+            .min_h_0()
+            .w_full()
             .child(
                 div()
                     .id("sheet-body")
+                    .flex_1()
+                    .min_h_0()
                     .w_full()
-                    .max_h(viewport.height - SHEET_CHROME)
                     .overflow_hidden()
                     .overflow_y_scroll()
                     .track_scroll(scroll)
@@ -108,9 +103,6 @@ fn editor_sheet(
             }),
     )
 }
-
-/// The horizontal padding a `Sheet` puts on its body.
-const SHEET_PADDING: Pixels = px(16.);
 
 /// The content pane's own horizontal padding, carried by the header and by the scrolling cards
 /// rather than by the pane, so the scroll area can run full width underneath both.
@@ -135,19 +127,6 @@ fn clipped(handle: &ScrollHandle) -> (bool, bool) {
 fn clip_edge(cx: &App) -> Div {
     div().absolute().h(px(2.)).bg(cx.theme().foreground)
 }
-
-/// What a `Sheet`'s own title row and footer row occupy, measured (122) plus 2px of slack.
-///
-/// This is what keeps Cancel and Save in the same place whatever a sheet is for and however much
-/// it holds. The body grows to fill the sheet, so with short content the footer sits at the
-/// bottom on its own; with content taller than this the body would keep growing and carry the
-/// footer down with it. Capping the content here means both cases end in the same place.
-///
-/// **Err high, never low.** Too high costs a couple of pixels of scroll area nobody can see. Too
-/// low and tall sheets push their footer below short ones — and eventually off the window, which
-/// is how Save went missing the first time. Re-measure by capturing `--show task` and
-/// `--show destination-edit` and comparing where the Save button ends.
-const SHEET_CHROME: Pixels = px(124.);
 
 /// Which of the two things the window body is showing.
 ///
@@ -904,7 +883,6 @@ impl Render for MainView {
             // it. Leave these out and `open_sheet` / `open_dialog` succeed and show nothing.
             .children(Root::render_sheet_layer(window, cx))
             .children(Root::render_dialog_layer(window, cx))
-            .children(Root::render_notification_layer(window, cx))
     }
 }
 

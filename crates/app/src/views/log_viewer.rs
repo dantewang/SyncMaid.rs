@@ -17,11 +17,6 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::scroll::{Scrollbar, ScrollbarMode};
-use gpui_kit::component::{
-    h_flex, v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
-};
 use gpui_kit::{
     div, prelude::*, px, size, App, Bounds, Context, Entity, FontWeight, ScrollHandle,
     SharedString, TitlebarOptions, Window, WindowBounds, WindowHandle, WindowKind, WindowOptions,
@@ -32,6 +27,8 @@ use crate::components::Glyph;
 use crate::platform::shell_open;
 use crate::services::logging::{self, DestinationTag, LogLine};
 use crate::strings;
+use crate::theme::ActiveTheme as _;
+use crate::ui::{h_flex, v_flex, Button, Icon, Root, Scrollbar, ScrollbarMode};
 
 /// How many of a destination's lines the window shows. Enough to see a failure and the runs
 /// around it; past that the file itself is the better tool, which is what the button is for.

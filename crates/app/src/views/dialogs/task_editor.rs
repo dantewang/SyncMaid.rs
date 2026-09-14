@@ -3,10 +3,6 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
-use gpui_kit::component::form::{field, v_form, Field};
-use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{alert::Alert, h_flex, v_flex, Disableable as _, Selectable as _};
 use gpui_kit::{
     div, prelude::*, px, App, Context, Entity, EventEmitter, FontWeight, PathPromptOptions, Window,
 };
@@ -20,6 +16,9 @@ use uuid::Uuid;
 use crate::components::{ChoiceCard, Glyph};
 use crate::state::source_conflict;
 use crate::strings;
+use crate::ui::{
+    field, h_flex, v_flex, v_form, Alert, Button, ButtonGroup, Field, Input, InputState,
+};
 
 /// What the editor decided.
 pub enum TaskEditorEvent {

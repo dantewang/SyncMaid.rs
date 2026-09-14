@@ -1,21 +1,18 @@
 //! The wording of the two destructive confirmations.
 //!
-//! Not a view any more: `gpui_kit::component::dialog::Dialog` draws the card and the title, so
-//! all that is left is deciding what the question says and how loud the accept button should be.
+//! Not a view any more: `ui::Dialog` draws the card and the title, so all that is left is
+//! deciding what the question says and how loud the accept button should be.
 //!
-//! The footer is spelled out rather than taken from `Dialog::confirm()`, and that is the point.
-//! `confirm()` wires the accept action to `on_ok`, which the library also binds to Enter — and a
-//! destructive confirm a stray return key can approve is not a confirm. Leaving `on_ok` unset
-//! keeps Esc cancelling (the library gates both on one `keyboard` flag) while reducing Enter to
-//! "close", which is the safe direction.
+//! Accepting is only ever the accept button. The dialog binds Esc and Enter, but both of them just
+//! close it — and a destructive confirm a stray return key could approve would not be a confirm.
 
 use std::rc::Rc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{h_flex, ActiveTheme as _, WindowExt as _};
 use gpui_kit::{div, prelude::*, px, App, SharedString, Window};
 
 use crate::strings;
+use crate::theme::ActiveTheme as _;
+use crate::ui::{h_flex, Button, WindowExt as _};
 
 /// A confirmation the user asked for by clicking something destructive.
 #[derive(Debug, Clone)]
@@ -86,11 +83,8 @@ impl Prompt {
             dialog
                 .w(px(400.))
                 .title(self.title.clone())
-                .close_button(false)
                 .overlay_closable(false)
                 .footer(
-                    // The library draws the footer as given, so the row the old one laid out
-                    // for us — end-aligned, spaced — is ours to lay out now.
                     h_flex()
                         .gap_2()
                         .justify_end()

@@ -6,11 +6,6 @@
 
 use std::sync::Arc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{
-    alert::Alert, h_flex, tag::Tag, v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-    Size,
-};
 use gpui_kit::{
     div, prelude::*, px, App, Context, Entity, EventEmitter, FontWeight, SharedString, Window,
 };
@@ -20,8 +15,9 @@ use uuid::Uuid;
 
 use crate::components::Glyph;
 use crate::state::{self, DestinationPreview, ExtensionChip, FilterModel, Scan, Summary};
-
 use crate::strings;
+use crate::theme::ActiveTheme as _;
+use crate::ui::{h_flex, v_flex, Alert, Button, Icon, Size, Tag};
 
 /// What the workspace decided.
 pub enum TaskWorkspaceEvent {

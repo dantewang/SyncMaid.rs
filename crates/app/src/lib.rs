@@ -12,4 +12,5 @@ pub mod services;
 pub mod state;
 pub mod strings;
 pub mod theme;
+pub mod ui;
 pub mod views;

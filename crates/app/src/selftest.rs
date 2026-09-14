@@ -11,10 +11,10 @@
 
 use std::time::Duration;
 
-use gpui_kit::component::Root;
 use gpui_kit::{App, WindowHandle};
 
 use syncmaid::platform::window_visibility;
+use syncmaid::ui::Root;
 
 /// How long to stay hidden. Long enough that a loop which ends on hide has certainly ended.
 const HIDDEN_FOR: Duration = Duration::from_secs(3);

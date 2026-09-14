@@ -12,8 +12,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{ActiveTheme as _, Icon, Root};
 use gpui_kit::{
     div, prelude::*, px, size, App, Bounds, Context, FontWeight, TitlebarOptions, Window,
     WindowBounds, WindowKind, WindowOptions,
@@ -23,6 +21,8 @@ use syncmaid_core::sync::MirrorDeletePreview;
 
 use crate::components::Glyph;
 use crate::strings;
+use crate::theme::ActiveTheme as _;
+use crate::ui::{Button, Icon, Root};
 
 /// The window's own size. Fixed rather than sized to content: the sample list scrolls, so the
 /// window is the same shape whether three files are going or three thousand.
@@ -254,9 +254,8 @@ pub fn ask(
                 kind: WindowKind::Normal,
                 ..Default::default()
             },
-            // Wrapped in `Root` like the main window: the library's components expect its
-            // layers to exist, and a bare view here would be a second, subtly different
-            // rendering environment.
+            // Wrapped in `Root` like the main window, so this is not a second, subtly different
+            // rendering environment: the same font, ground and focus handling.
             move |window, cx| {
                 let view = cx.new(|_| ConfirmMirrorDelete::new(&destination, preview, answer));
                 let any: gpui_kit::AnyView = view.into();

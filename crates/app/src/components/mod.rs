@@ -1,10 +1,8 @@
-//! The two pieces of chrome `gpui-component` does not ship — and the one it ships wrong.
+//! The app-specific pieces that sit above `ui`'s general-purpose controls.
 //!
-//! Everything else that used to live here — the buttons, badges, hint boxes, segmented pickers
-//! and checkboxes — is gone, replaced by the library's own. What is left is a glyph table
-//! ([`Glyph`], a semantic name per icon), [`ChoiceCard`], which has no built-in counterpart, and
-//! [`ScrollRail`], which replaces a library widget that cannot be restyled: see each module's
-//! docs for why.
+//! A glyph table ([`Glyph`], a semantic name per icon), [`ChoiceCard`], a radio option big enough
+//! to explain itself, and [`ScrollRail`], Porcelain's hairline scrollbar: see each module's docs
+//! for why they exist.
 
 mod choice_card;
 mod icon;

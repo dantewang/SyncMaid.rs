@@ -9,19 +9,15 @@
 
 use std::path::PathBuf;
 
-use gpui_kit::component::button::Button;
 use gpui_kit::{
     div, prelude::*, px, App, Context, Div, EventEmitter, FontWeight, SharedString, Window,
 };
-
-use gpui_kit::component::alert::Alert;
-use gpui_kit::component::button::ButtonGroup;
-use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{h_flex, v_flex, ActiveTheme as _, Selectable as _, Sizable as _};
 use syncmaid_core::model::AppSettings;
 
 use crate::components::Glyph;
 use crate::platform::autostart::{auto_start, AutoStart, AutoStartState};
+use crate::theme::ActiveTheme as _;
+use crate::ui::{h_flex, v_flex, Alert, Button, ButtonGroup, Switch};
 use crate::{i18n, strings};
 
 /// What the settings page changed.

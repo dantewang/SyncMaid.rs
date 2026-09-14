@@ -1,22 +1,21 @@
 //! A scrollbar drawn in Porcelain's own terms: a hairline rail with a square tick.
 //!
-//! `gpui_kit::component::Scrollbar` cannot be restyled into this. Its track width, thumb width and —
-//! the part that shows — its 3px corner radius are private constants with no theme tokens behind
-//! them, so on a theme whose `radius` is zero it renders the only rounded object on screen. At
-//! six pixels wide that reads less as a scrollbar than as something that failed to paint square.
+//! Not the library scrollbar, which is a filled thumb on a track: a hairline that thickens where
+//! you are is what the rest of Porcelain's rules look like, and a six-pixel bar is not.
 //!
-//! What is here is deliberately less than the library's: one axis, no fade-out timer, no hover
+//! What is here is deliberately less than a scrollbar: one axis, no fade-out timer, no hover
 //! growth. The bar is an indicator that also happens to be draggable, and the wheel is still how
 //! anyone actually scrolls.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
-use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::{
     div, point, prelude::*, px, App, Context, DragMoveEvent, ElementId, Empty, Pixels, Render,
     ScrollHandle, Window,
 };
+
+use crate::theme::ActiveTheme as _;
 
 /// The column the rail reserves. The drawn parts are 1px and 3px; the rest is grab room.
 pub const RAIL_WIDTH: Pixels = px(16.);

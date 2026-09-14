@@ -7,13 +7,6 @@
 
 use std::path::Path;
 
-use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
-use gpui_kit::component::form::{field, v_form, Field};
-use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{
-    alert::Alert, checkbox::Checkbox, h_flex, v_flex, ActiveTheme as _, Icon, Selectable as _,
-    Sizable as _, Size,
-};
 use gpui_kit::{
     div, prelude::*, px, App, Context, Entity, PathPromptOptions, SharedString, Window,
 };
@@ -26,8 +19,12 @@ use uuid::Uuid;
 
 use crate::components::{ChoiceCard, Glyph};
 use crate::state::{destination_conflict, FilterEntry, FilterGroup, FilterKind, FilterModel};
-
 use crate::strings;
+use crate::theme::ActiveTheme as _;
+use crate::ui::{
+    field, h_flex, v_flex, v_form, Alert, Button, ButtonGroup, Checkbox, Field, Icon, Input,
+    InputState, Size,
+};
 
 /// See the module docs.
 pub struct DestinationEditor {

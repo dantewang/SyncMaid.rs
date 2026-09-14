@@ -25,11 +25,13 @@ engineer around them.
   surfaces, which are tall and list-shaped and want the height. `Window::open_dialog` is for the
   yes/no confirmations. Anything that can appear while the app is hidden in the tray — the
   mirror-delete confirmation — must be an independent top-level window, or nobody sees it.
-- **A `Sheet` does not clamp its own body.** It is `flex_1` over `overflow: scroll` on both axes,
-  with no width and no `min-height: 0`, so unclamped content widens the sheet (carrying a row's
-  buttons off the right edge) and lengthens it (pushing the footer, and Save, off the bottom). A
-  dialog wraps content for you; a sheet does not. `editor_sheet` is that wrapper.
-- **`Root` holds the sheet and dialog stacks; it draws neither.** The application's own root view
+- **Components are ours, in `src/ui`, over gpui-base.** gpui-base owns behaviour (focus, keyboard,
+  focus traps, dismissal, text editing) and draws nothing; `ui` draws exactly the controls the app
+  uses. Do not bring `gpui-component` back for one widget — add it to `ui` instead.
+- **A `Sheet` clamps its body; the body scrolls itself.** The body is the height between the title
+  bar and the footer, so Save cannot be pushed off the bottom, but content taller than that needs
+  its own `overflow_y_scroll` with `flex_1().min_h_0()`. `editor_sheet` is that scroll area.
+- **`ui::Root` holds the sheet and dialog stacks; it draws neither.** The application's own root view
   has to render `Root::render_sheet_layer` and `render_dialog_layer`, or `open_sheet` and
   `open_dialog` succeed and show nothing.
 - **Do not open a sheet or dialog from inside `WindowHandle::update`.** That closure already
@@ -42,13 +44,11 @@ engineer around them.
   painted into one corner. `Window::viewport_size()` is likewise already in layout units and
   must not be divided by `scale_factor()`.
 - **Colour comes from the theme, never from a constant.** `cx.theme().danger`, not a hex literal:
-  the palette is `gpui-component`'s Ayu Light, loaded from a compiled-in JSON. A hard-coded
-  colour is a piece of the UI that stops following the theme forward.
+  the Porcelain palette is `theme::Theme`, and `theme::install` projects it onto gpui-base's own
+  tokens for the parts base paints. A hard-coded colour is a piece of the UI that stops following
+  the theme forward.
 - **Icons are Lucide, reached through `Glyph`, and every file is ours** under `assets/icons`.
-  gpui-kit's `assets` feature stays off. The library still draws a few icons itself (the sheet's
-  close button, alert and checkbox icons) and asks for them by `IconName` path, so those files
-  keep the library's names and `assets.rs` tests that they exist. Add a glyph in one place, not
-  at the call site.
+  Add a glyph in one place, not at the call site; its test fails for a name with no file.
 - **Measure screenshots with a DPI-aware process.** Windows virtualizes `GetWindowRect` and
   `PrintWindow` for DPI-unaware callers, dividing everything back down — which hides exactly
   the class of bug above. Call `SetProcessDpiAwarenessContext(-4)` first.

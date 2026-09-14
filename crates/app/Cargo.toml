@@ -24,13 +24,14 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 
-# GPUI and gpui-component as one version-matched dependency. `component` only: `assets` would
-# embed the library's icon bundle, and every icon the app draws ships in `assets/icons` instead
-# (see `assets.rs`). The remaining features are tree-sitter grammars.
-gpui-kit = { version = "0.6.1", default-features = false, features = ["component"] }
+# GPUI and gpui-base, and nothing styled: the components the app draws are its own, in
+# `src/ui`. No features — `component` would bring gpui-component back, `assets` its icon bundle,
+# and the rest are tree-sitter grammars.
+gpui-kit = { version = "0.6.1", default-features = false }
 raw-window-handle = "0.6.2"
 flume = "0.12.0"
-rust-embed = "8.12.0"
+# `include-exclude` for the `#[include]` filters in `assets.rs`.
+rust-embed = { version = "8.12.0", features = ["include-exclude"] }
 tracing-subscriber = { version = "0.3.23", features = ["fmt"] }
 chrono.workspace = true
 uuid.workspace = true

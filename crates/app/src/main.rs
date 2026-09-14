@@ -10,12 +10,12 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use anyhow::Result;
-use gpui_kit::component::Root;
 use gpui_kit::{
     px, size, App, AppContext as _, Bounds, Entity, TitlebarOptions, WindowBounds, WindowOptions,
 };
 use syncmaid::platform::tray::{TrayCommand, TrayLabels};
 use syncmaid::state::Workspace;
+use syncmaid::ui::Root;
 use syncmaid::views::MainView;
 use syncmaid::{assets, platform, services, strings, theme};
 use syncmaid_core::io::{FileSystem, PhysicalFileSystem};
@@ -61,6 +61,7 @@ fn main() {
         .with_assets(assets::Assets)
         .run(move |cx: &mut App| {
             gpui_kit::init(cx);
+            syncmaid::ui::init(cx);
             theme::install(cx);
 
             let workspace = Workspace::load(Arc::clone(&file_system), &config);

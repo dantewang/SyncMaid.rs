@@ -1,57 +1,194 @@
-//! The theme, and the handful of sizes that are ours rather than the component library's.
+//! The palette, and the handful of sizes that are ours rather than a component's.
 //!
-//! Everything about colour now comes from `gpui-component`: `cx.theme().foreground`,
-//! `cx.theme().danger`, and so on. The palette this module used to hold — sixteen `u32`
-//! constants transcribed from the Avalonia build — is gone on purpose. Hard-coded colours are
-//! why the app could not follow the component library forward, and why a dark mode would have
-//! meant repainting every element by hand.
+//! Every colour the UI draws comes from [`Theme`], through `cx.theme()`. The palette lives here in
+//! Rust rather than in a JSON theme file: nothing reads a theme at run time any more, and a
+//! compiled-in table is one less format to keep in step with the code that uses it.
 //!
-//! What is left is `install`, plus the few fixed measurements no theme token covers.
+//! `install` also projects the palette onto gpui-base's own theme, which is what base-owned
+//! parts — the scrollbar, an input's text and caret — paint from.
 
-use std::rc::Rc;
+use gpui_kit::base::{
+    ColorTokens, RadiusTokens, ScrollbarStyles, ScrollbarTheme, Theme as BaseTheme,
+};
+use gpui_kit::{px, rgb, rgba, App, Global, Hsla, Pixels, SharedString};
 
-use gpui_kit::component::{Theme, ThemeMode, ThemeSet};
-use gpui_kit::{px, App, Pixels};
+/// Porcelain: flat, square, ink on a pale ground, with teal meaning "happening now".
+#[derive(Clone, Debug)]
+pub struct Theme {
+    pub background: Hsla,
+    pub foreground: Hsla,
+    pub border: Hsla,
+    /// The scrim behind a sheet or a dialog.
+    pub overlay: Hsla,
 
-/// The theme set, compiled in.
-///
-/// Deliberately `include_str!` rather than `ThemeRegistry::watch_dir`, which is what the
-/// component library's own documentation suggests: that reads JSON from a `./themes` directory
-/// at run time, and SyncMaid ships as one executable with nothing beside it. A portable app
-/// that needs a folder of theme files is not portable.
-const THEMES: &str = include_str!("../assets/themes/porcelain.json");
+    pub muted: Hsla,
+    pub muted_foreground: Hsla,
+    pub accent: Hsla,
 
-/// The theme SyncMaid wears. Light only, as the Avalonia build was.
-const ACTIVE: &str = "Porcelain";
+    pub secondary: Hsla,
+    pub secondary_foreground: Hsla,
+    pub secondary_active: Hsla,
 
-/// Applies [`ACTIVE`]. Call once, after `gpui_kit::init`.
-pub fn install(cx: &mut App) {
-    let set: ThemeSet = match serde_json::from_str(THEMES) {
-        Ok(set) => set,
-        // A theme that will not parse is a cosmetic problem, not a reason to refuse to start:
-        // the component library's built-in light theme is still perfectly usable.
-        Err(error) => {
-            tracing::error!(%error, "the bundled theme could not be read; keeping the default");
-            return;
-        }
-    };
+    pub primary: Hsla,
+    pub primary_foreground: Hsla,
+    pub primary_hover: Hsla,
+    pub primary_active: Hsla,
 
-    match set.themes.into_iter().find(|theme| theme.name == ACTIVE) {
-        Some(config) => Theme::global_mut(cx).apply_config(&Rc::new(config)),
-        None => tracing::error!("the bundled theme set has no {ACTIVE:?}; keeping the default"),
-    }
+    pub danger: Hsla,
+    pub danger_foreground: Hsla,
+    pub danger_hover: Hsla,
+    pub danger_active: Hsla,
 
-    // Explicit rather than relying on the default: the mode decides which of the set's two
-    // themes is the one being drawn.
-    Theme::change(ThemeMode::Light, None, cx);
+    pub warning: Hsla,
+    pub warning_foreground: Hsla,
+    pub success: Hsla,
 
-    // Sheets start at the top of the client area, not below the library's default title-bar
-    // allowance: that leaves room for a drawn title bar, and ours is the system's — the client
-    // area already starts below it.
-    Theme::global_mut(cx).sheet.margin_top = px(0.);
+    /// A focused control's edge.
+    pub ring: Hsla,
+    pub caret: Hsla,
+    pub selection: Hsla,
+    /// An input's resting edge.
+    pub input: Hsla,
+    pub link: Hsla,
+
+    pub sidebar: Hsla,
+    pub sidebar_border: Hsla,
+    pub sidebar_accent: Hsla,
+    pub list_active: Hsla,
+
+    pub switch: Hsla,
+    pub switch_thumb: Hsla,
+    pub scrollbar_thumb: Hsla,
+    pub scrollbar_thumb_hover: Hsla,
+
+    pub font_family: SharedString,
+    pub mono_font_family: SharedString,
+    pub font_size: Pixels,
+    pub radius: Pixels,
+    pub radius_lg: Pixels,
 }
 
-/// The one type size the theme's own scale does not cover.
+impl Global for Theme {}
+
+fn hex(value: u32) -> Hsla {
+    rgb(value).into()
+}
+
+impl Theme {
+    /// The one theme SyncMaid wears. Light only, as the Avalonia build was.
+    pub fn porcelain() -> Self {
+        Self {
+            background: hex(0xF8FAFB),
+            foreground: hex(0x191C22),
+            border: hex(0xC2CBD1),
+            overlay: rgba(0x191C2247).into(),
+
+            muted: hex(0xE7EAEC),
+            muted_foreground: hex(0x7C878F),
+            accent: hex(0xDEF0F4),
+
+            secondary: hex(0xE7EAEC),
+            secondary_foreground: hex(0x5B666E),
+            secondary_active: hex(0xD9DFE3),
+
+            primary: hex(0x191C22),
+            primary_foreground: hex(0xF2F6F7),
+            primary_hover: hex(0x116F8E),
+            primary_active: hex(0x0C4C61),
+
+            danger: hex(0xC62F3C),
+            danger_foreground: hex(0xF2F6F7),
+            danger_hover: hex(0xD34450),
+            danger_active: hex(0xA82430),
+
+            warning: hex(0x8A6410),
+            warning_foreground: hex(0xFBF1DC),
+            success: hex(0x191C22),
+
+            ring: hex(0x116F8E),
+            caret: hex(0x191C22),
+            selection: hex(0xA5E5EF),
+            input: hex(0xC2CBD1),
+            link: hex(0x116F8E),
+
+            sidebar: hex(0xD9DFE3),
+            sidebar_border: hex(0xC2CBD1),
+            sidebar_accent: hex(0xF8FAFB),
+            list_active: hex(0xDEF0F4),
+
+            switch: hex(0xC2CBD1),
+            switch_thumb: hex(0xF8FAFB),
+            scrollbar_thumb: rgba(0x5B666E66).into(),
+            scrollbar_thumb_hover: rgba(0x5B666EAA).into(),
+
+            font_family: ".SystemUIFont".into(),
+            mono_font_family: "Consolas".into(),
+            font_size: px(16.),
+            radius: px(0.),
+            radius_lg: px(0.),
+        }
+    }
+}
+
+/// `cx.theme()`.
+pub trait ActiveTheme {
+    fn theme(&self) -> &Theme;
+}
+
+impl ActiveTheme for App {
+    #[inline]
+    fn theme(&self) -> &Theme {
+        self.global::<Theme>()
+    }
+}
+
+/// Installs the palette. Call once, after `gpui_kit::init`.
+pub fn install(cx: &mut App) {
+    let theme = Theme::porcelain();
+
+    let base = BaseTheme::global_mut(cx);
+    base.tokens.colors = ColorTokens {
+        background: theme.background,
+        foreground: theme.foreground,
+        surface: theme.background,
+        surface_foreground: theme.foreground,
+        primary: theme.primary,
+        primary_foreground: theme.primary_foreground,
+        secondary: theme.secondary,
+        secondary_foreground: theme.secondary_foreground,
+        muted: theme.muted,
+        muted_foreground: theme.muted_foreground,
+        accent: theme.accent,
+        accent_foreground: theme.foreground,
+        destructive: theme.danger,
+        destructive_foreground: theme.danger_foreground,
+        border: theme.border,
+        input: theme.input,
+        ring: theme.ring,
+        selection: theme.selection,
+    };
+    base.tokens.radius = RadiusTokens {
+        none: px(0.),
+        sm: theme.radius,
+        md: theme.radius,
+        lg: theme.radius_lg,
+        xl: theme.radius_lg,
+        full: theme.radius,
+    };
+    base.tokens.typography.sans = theme.font_family.clone();
+    base.tokens.typography.mono = theme.mono_font_family.clone();
+    base.scrollbar = ScrollbarTheme::new().with_styles(
+        ScrollbarStyles::default()
+            .track(|style| style.bg(gpui_kit::transparent_black()))
+            .thumb(|style| style.bg(theme.scrollbar_thumb).radius(theme.radius))
+            .thumb_hover(|style| style.bg(theme.scrollbar_thumb_hover).radius(theme.radius))
+            .thumb_active(|style| style.bg(theme.scrollbar_thumb_hover).radius(theme.radius)),
+    );
+
+    cx.set_global(theme);
+}
+
+/// The one type size the default scale does not cover.
 pub mod text {
     use super::*;
 
@@ -76,25 +213,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_bundled_theme_set_contains_the_one_we_ask_for() {
-        // A rename upstream would otherwise show up as the app quietly wearing the default
-        // theme, which is close enough to Ayu Light to go unnoticed for a long time.
-        let set: ThemeSet = serde_json::from_str(THEMES).expect("the bundled theme set parses");
-        assert!(
-            set.themes.iter().any(|theme| theme.name == ACTIVE),
-            "no {ACTIVE:?} in {:?}",
-            set.themes.iter().map(|t| &t.name).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn the_theme_we_wear_is_a_light_one() {
-        let set: ThemeSet = serde_json::from_str(THEMES).expect("the bundled theme set parses");
-        let active = set
-            .themes
-            .into_iter()
-            .find(|theme| theme.name == ACTIVE)
-            .expect("the active theme is present");
-        assert!(!active.mode.is_dark());
+    fn porcelain_is_ink_on_a_pale_ground() {
+        // Light only: every surface assumes dark text on a light background.
+        let theme = Theme::porcelain();
+        assert!(theme.background.l > theme.foreground.l);
+        assert!(theme.primary_foreground.l > theme.primary.l);
     }
 }

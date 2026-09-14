@@ -1,17 +1,11 @@
 //! Every glyph SyncMaid draws, named for what it means rather than what it looks like.
 //!
-//! The set is Lucide throughout, and every file is ours, under `assets/icons`. Nothing resolves
-//! through gpui-kit's icon bundle, which is not linked. File names follow the Lucide names the
-//! library's own `IconName` uses, because the library draws a few icons itself and asks for them
-//! by those names (see `assets.rs`).
-//!
-//! Implementing [`IconNamed`] is the library's own extension point: a `Glyph` goes anywhere an
-//! `IconName` does — `Button::icon`, `SidebarMenuItem::icon`, `Icon::new`, `Alert::icon`.
+//! The set is Lucide throughout, and every file is ours, under `assets/icons`. Adding a variant
+//! means dropping its Lucide SVG in there; the test below fails for a name with no file.
 
-use gpui_kit::component::IconNamed;
 use gpui_kit::SharedString;
 
-/// See the module docs. Adding a variant means dropping its Lucide SVG into `assets/icons`.
+/// See the module docs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Glyph {
     // --- Navigation and structure ---
@@ -69,10 +63,17 @@ pub enum Glyph {
     Failure,
     /// Never run, or finished with work left over.
     Idle,
+
+    // --- Hint boxes ---
+    /// A hint that is only information.
+    Info,
+    /// A hint that explains a refusal.
+    Error,
 }
 
-impl IconNamed for Glyph {
-    fn path(self) -> SharedString {
+impl Glyph {
+    /// The glyph's file in the embedded asset set.
+    pub fn path(self) -> SharedString {
         let name = match self {
             Self::ChevronDown => "chevron-down",
             Self::ChevronRight => "chevron-right",
@@ -111,6 +112,9 @@ impl IconNamed for Glyph {
             Self::Warning => "triangle-alert",
             Self::Failure => "circle-alert",
             Self::Idle => "circle-minus",
+
+            Self::Info => "info",
+            Self::Error => "circle-x",
         };
         format!("icons/{name}.svg").into()
     }
@@ -151,7 +155,7 @@ mod tests {
         assert_eq!(paths.len(), unique.len(), "{paths:?}");
     }
 
-    const ALL: [Glyph; 32] = [
+    const ALL: [Glyph; 34] = [
         Glyph::ChevronDown,
         Glyph::ChevronRight,
         Glyph::ArrowRight,
@@ -184,5 +188,7 @@ mod tests {
         Glyph::Warning,
         Glyph::Failure,
         Glyph::Idle,
+        Glyph::Info,
+        Glyph::Error,
     ];
 }

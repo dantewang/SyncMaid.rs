@@ -1,23 +1,20 @@
 //! Every glyph SyncMaid draws, named for what it means rather than what it looks like.
 //!
-//! The set is Lucide throughout, reached two ways. Most names resolve to a `gpui-component`
-//! [`IconName`], so they cost nothing and follow the library forward. The rest resolve to an SVG
-//! under `assets/icons`, because `IconName` — 86 variants — happens to have no Play, Stop,
-//! Refresh, Trash, Pencil, Clock or Funnel, which is most of the verbs a sync app needs. Both
-//! halves are the same icon family, so the seam is invisible.
+//! The set is Lucide throughout, and every file is ours, under `assets/icons`. Nothing resolves
+//! through gpui-kit's icon bundle, which is not linked. File names follow the Lucide names the
+//! library's own `IconName` uses, because the library draws a few icons itself and asks for them
+//! by those names (see `assets.rs`).
 //!
 //! Implementing [`IconNamed`] is the library's own extension point: a `Glyph` goes anywhere an
 //! `IconName` does — `Button::icon`, `SidebarMenuItem::icon`, `Icon::new`, `Alert::icon`.
 
-use gpui_kit::component::{IconName, IconNamed};
+use gpui_kit::component::IconNamed;
 use gpui_kit::SharedString;
 
-/// See the module docs. Adding a variant means either finding an `IconName` for it or dropping
-/// its Lucide SVG into `assets/icons`.
+/// See the module docs. Adding a variant means dropping its Lucide SVG into `assets/icons`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Glyph {
     // --- Navigation and structure ---
-    Back,
     ChevronDown,
     ChevronRight,
     ArrowRight,
@@ -76,52 +73,47 @@ pub enum Glyph {
 
 impl IconNamed for Glyph {
     fn path(self) -> SharedString {
-        match self {
-            Self::Back => IconName::ArrowLeft.path(),
-            Self::ChevronDown => IconName::ChevronDown.path(),
-            Self::ChevronRight => IconName::ChevronRight.path(),
-            Self::ArrowRight => IconName::ArrowRight.path(),
-            Self::MoveUp => IconName::ArrowUp.path(),
-            Self::MoveDown => IconName::ArrowDown.path(),
-            Self::Close => IconName::Close.path(),
-            Self::Remove => IconName::CircleX.path(),
+        let name = match self {
+            Self::ChevronDown => "chevron-down",
+            Self::ChevronRight => "chevron-right",
+            Self::ArrowRight => "arrow-right",
+            Self::MoveUp => "arrow-up",
+            Self::MoveDown => "arrow-down",
+            Self::Close => "close",
+            Self::Remove => "circle-x",
 
-            Self::Folder => IconName::Folder.path(),
-            Self::Asterisk => IconName::Asterisk.path(),
-            Self::Log => IconName::File.path(),
+            Self::Folder => "folder",
+            Self::Inbox => "import",
+            Self::Tree => "folder-tree",
+            Self::Route => "split",
+            Self::Filter => "funnel",
+            Self::Asterisk => "asterisk",
+            Self::Log => "file",
 
-            Self::Add => IconName::Plus.path(),
-            Self::Copy => IconName::Copy.path(),
-            Self::Settings => IconName::Settings.path(),
-            Self::Eye => IconName::Eye.path(),
-            Self::Check => IconName::Check.path(),
-            Self::OpenExternal => IconName::ExternalLink.path(),
+            Self::Run => "play",
+            Self::Stop => "circle-stop",
+            Self::Sync => "refresh-cw",
+            Self::Add => "plus",
+            Self::Edit => "pencil",
+            Self::Trash => "trash-2",
+            Self::Copy => "copy",
+            Self::Settings => "settings",
+            Self::Eye => "eye",
+            Self::Check => "check",
+            Self::OpenExternal => "external-link",
 
-            Self::Success => IconName::CircleCheck.path(),
-            Self::Warning => IconName::TriangleAlert.path(),
+            Self::Manual => "mouse-pointer-click",
+            Self::Clock => "clock",
 
-            // The supplements. See the module docs for why these are not `IconName`s.
-            Self::Inbox => supplement("import"),
-            Self::Tree => supplement("folder-tree"),
-            Self::Route => supplement("split"),
-            Self::Filter => supplement("funnel"),
-            Self::Run => supplement("play"),
-            Self::Stop => supplement("circle-stop"),
-            Self::Sync => supplement("refresh-cw"),
-            Self::Edit => supplement("pencil"),
-            Self::Trash => supplement("trash-2"),
-            Self::Manual => supplement("mouse-pointer-click"),
-            Self::Clock => supplement("clock"),
-            Self::Recycle => supplement("recycle"),
-            Self::Failure => supplement("circle-alert"),
-            Self::Idle => supplement("circle-minus"),
-        }
+            Self::Recycle => "recycle",
+
+            Self::Success => "circle-check",
+            Self::Warning => "triangle-alert",
+            Self::Failure => "circle-alert",
+            Self::Idle => "circle-minus",
+        };
+        format!("icons/{name}.svg").into()
     }
-}
-
-/// One of ours. Same `icons/` namespace as `IconName`'s, which is why the names must not collide.
-fn supplement(name: &str) -> SharedString {
-    format!("icons/{name}.svg").into()
 }
 
 #[cfg(test)]
@@ -159,8 +151,7 @@ mod tests {
         assert_eq!(paths.len(), unique.len(), "{paths:?}");
     }
 
-    const ALL: [Glyph; 33] = [
-        Glyph::Back,
+    const ALL: [Glyph; 32] = [
         Glyph::ChevronDown,
         Glyph::ChevronRight,
         Glyph::ArrowRight,

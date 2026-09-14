@@ -44,9 +44,11 @@ engineer around them.
 - **Colour comes from the theme, never from a constant.** `cx.theme().danger`, not a hex literal:
   the palette is `gpui-component`'s Ayu Light, loaded from a compiled-in JSON. A hard-coded
   colour is a piece of the UI that stops following the theme forward.
-- **Icons are Lucide, reached through `Glyph`.** Most resolve to an `IconName`; the dozen with no
-  variant (Play, Stop, Refresh, Trash, Pencil, Clock, Funnel …) resolve to an SVG under
-  `assets/icons`. Add a glyph in one place, not at the call site.
+- **Icons are Lucide, reached through `Glyph`, and every file is ours** under `assets/icons`.
+  gpui-kit's `assets` feature stays off. The library still draws a few icons itself (the sheet's
+  close button, alert and checkbox icons) and asks for them by `IconName` path, so those files
+  keep the library's names and `assets.rs` tests that they exist. Add a glyph in one place, not
+  at the call site.
 - **Measure screenshots with a DPI-aware process.** Windows virtualizes `GetWindowRect` and
   `PrintWindow` for DPI-unaware callers, dividing everything back down — which hides exactly
   the class of bug above. Call `SetProcessDpiAwarenessContext(-4)` first.

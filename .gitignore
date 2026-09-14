@@ -4,3 +4,6 @@
 
 # Portable-mode runtime data, if the app is ever run from the source tree.
 /Data
+
+# Personal Claude Code settings. A shared .claude/settings.json would still be committed.
+/.claude/settings.local.json

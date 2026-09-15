@@ -9,6 +9,7 @@ use gpui_kit::{
     SharedString, Window,
 };
 
+use super::focus_ring::focus_ring;
 use crate::components::Glyph;
 use crate::theme::ActiveTheme as _;
 
@@ -50,12 +51,20 @@ impl Checkbox {
 }
 
 impl RenderOnce for Checkbox {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Owned here so the ring can ask; a press never focuses the box, so this is keyboard focus.
+        let focus = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let focused = focus.is_focused(window);
+
         let theme = cx.theme();
         let checked = self.checked;
         let (primary, mark) = (theme.primary, theme.primary_foreground);
 
         BaseCheckbox::new(self.id)
+            .track_focus(&focus)
             .checked(checked)
             .when_some(self.label.clone(), |checkbox, label| {
                 checkbox.accessibility_label(label)
@@ -80,6 +89,12 @@ impl RenderOnce for Checkbox {
                     .rounded(theme.radius.min(px(4.)))
                     .bg(theme.background)
                     .border_color(theme.input)
+                    // On the box rather than the row: the row has no edge of its own to line.
+                    .when(focused, |indicator| {
+                        indicator
+                            .border_color(theme.ring)
+                            .child(focus_ring(theme.radius.min(px(4.)), cx))
+                    })
                     .styles(|styles| {
                         styles.checked(|style| style.border_color(primary).bg(primary))
                     })

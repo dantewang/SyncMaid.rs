@@ -5,6 +5,7 @@ use gpui_kit::{
 
 pub use gpui_kit::base::input::InputState;
 
+use super::focus_ring::focus_ring;
 use super::h_flex;
 use crate::theme::ActiveTheme as _;
 
@@ -55,6 +56,8 @@ impl RenderOnce for Input {
             .border_1()
             .border_color(if focused { ring } else { edge })
             .rounded(radius)
+            .relative()
+            .when(focused, |field| field.child(focus_ring(radius, cx)))
             .cursor_text()
             // The frame's padding is part of the field: a click there still means "type here".
             .on_mouse_down(MouseButton::Left, move |_, window, cx| {

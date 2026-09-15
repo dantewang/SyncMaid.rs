@@ -6,6 +6,7 @@ use gpui_kit::{
     SharedString, Window,
 };
 
+use super::focus_ring::focus_ring;
 use super::{h_flex, Icon, Tooltip};
 use crate::components::Glyph;
 use crate::theme::{ActiveTheme as _, Theme};
@@ -238,10 +239,19 @@ impl Button {
 }
 
 impl RenderOnce for Button {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // Owned here rather than left to gpui-base, so the ring can ask whether it is focused. A
+        // press never focuses the button (see below), so this is keyboard focus.
+        let focus = window
+            .use_keyed_state(self.id.clone(), cx, |_, cx| cx.focus_handle())
+            .read(cx)
+            .clone();
+        let focused = !self.disabled && focus.is_focused(window);
+
         let theme = cx.theme();
         let colors = self.variant.colors(self.outline, theme);
         let radius = theme.radius;
+        let ring = theme.ring;
         let disabled_fg = theme.muted_foreground.opacity(0.5);
         let (height, padding, compact_padding, gap, icon_size) = self.size.metrics();
         let icon_only = self.label.is_none();
@@ -249,6 +259,8 @@ impl RenderOnce for Button {
         let reacts = !self.disabled && !self.selected;
 
         BaseButton::new(self.id)
+            .track_focus(&focus)
+            .relative()
             .flex_shrink_0()
             .h(height)
             .map(|button| {
@@ -270,6 +282,9 @@ impl RenderOnce for Button {
             })
             .bg(colors.bg)
             .border_color(colors.border)
+            .when(focused, |button| {
+                button.border_color(ring).child(focus_ring(radius, cx))
+            })
             .text_color(colors.fg)
             .when(reacts, |button| {
                 button

@@ -11,6 +11,7 @@
 mod alert;
 mod button;
 mod dialog;
+mod focus_ring;
 mod form;
 mod icon;
 mod input;

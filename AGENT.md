@@ -27,7 +27,7 @@ engineer around them.
   mirror-delete confirmation — must be an independent top-level window, or nobody sees it.
 - **Components are ours, in `src/ui`, over gpui-base.** gpui-base owns behaviour (focus, keyboard,
   focus traps, dismissal, text editing) and draws nothing; `ui` draws exactly the controls the app
-  uses. Do not bring `gpui-component` back for one widget — add it to `ui` instead.
+  uses. Do not add `gpui-component` for one widget — add the control to `ui` instead.
 - **A `Sheet` clamps its body; the body scrolls itself.** The body is the height between the title
   bar and the footer, so Save cannot be pushed off the bottom, but content taller than that needs
   its own `overflow_y_scroll` with `flex_1().min_h_0()`. `editor_sheet` is that scroll area.
@@ -111,9 +111,9 @@ add a faster path that skips them.
 - **Every write is temp → verify → atomic rename** (`sync::safe_transfer`). Nothing overwrites
   a destination file in place, and Move deletes the source only once the destination verifies.
   Byte-moving code goes through it, not through `FileSystem` directly.
-- **Mirror deletions pass `MirrorGuard` first.** An empty or unavailable source emits zero
-  deletes and is **not** overridable; a mass delete needs one-shot user confirmation that is
-  never persisted. Deletes go to the Recycle Bin by default.
+- **Mirror deletions pass the mirror guard (`sync::evaluate_mirror_guard`) first.** An empty
+  or unavailable source emits zero deletes and is **not** overridable; a mass delete needs
+  one-shot user confirmation that is never persisted. Deletes go to the Recycle Bin by default.
 - **Safety logic lives in UI-free core** so `InMemoryFileSystem` can fault-inject it. New
   safety behaviour ships with a fault-injection test.
 - **A run never re-triggers itself into a loop.** Runs of a task are serialized by `RunGate`;
@@ -133,8 +133,9 @@ add a faster path that skips them.
   read and written in exactly the shape `System.Text.Json` produced, CRLF included, so the two
   builds can share a `Data` folder. `examples/compat_check.rs` checks a real config round-trips
   byte-identically.
-- **Config writes go through `AtomicFile` / `JsonConfigFile`** — temp → rename, previous
-  version kept as `.bak` and loaded as a fallback. Never write over `tasks.json` in place.
+- **Config writes go through `persistence::atomic_file` / `json_config`** — temp → rename,
+  previous version kept as `.bak` and loaded as a fallback. Never write over `tasks.json` in
+  place.
 - **Config that exists but cannot be read switches saving off.** Writing then would replace a
   file the user still has with one we invented.
 - **Old config keeps loading.** Normalize legacy shapes on save; never silently discard what

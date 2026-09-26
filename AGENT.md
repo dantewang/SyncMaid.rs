@@ -157,6 +157,23 @@ add a faster path that skips them.
   failures with the path and the verb. Cancellation propagates untouched and **is not a
   failure** — what landed stays, and the rows go back to what they said before.
 
+## Tests
+
+- **Write the unit test before the code it tests, and watch it fail first.** A test written
+  after the code tends to describe the code rather than the behaviour.
+- **A unit test must be able to catch a bug the integration tests in `crates/*/tests` would
+  miss** — a boundary, an edge input, an injected fault, a race, an ordering. If a test at a
+  higher level already fails on the same bug, don't add a lower-level copy.
+- **Test one behaviour once, at the highest level that can see it**, not once per layer it
+  passes through.
+- **Don't restate the code.** No asserting a constant, a path join, `env!`, a derived trait or
+  a lookup table echoed back. The exception is persisted shapes shared with the C# build: pin
+  those, because the other side of that contract is not in this repo.
+- **Test our decisions, not our dependencies.** A wrapper's tests cover what the wrapper
+  chooses (trimming, the strictly-after flag), not what croner or serde already guarantee.
+- **Every test needs an assertion that can fail.** Calling something and asserting nothing, or
+  comparing a value with itself, proves nothing.
+
 ## Commits
 
 - Do **not** add a "Co-Authored-By: Claude" trailer, or any AI co-author or attribution

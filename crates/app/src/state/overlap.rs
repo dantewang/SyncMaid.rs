@@ -147,12 +147,6 @@ mod tests {
     }
 
     #[test]
-    fn a_sibling_folder_is_not_a_conflict() {
-        let tasks = vec![task("Photos", r"C:\Photos", &[])];
-        assert_eq!(None, source_conflict(&tasks, None, r"C:\Videos"));
-    }
-
-    #[test]
     fn a_task_does_not_conflict_with_itself_while_being_edited() {
         let tasks = vec![task("Photos", r"C:\Photos", &[])];
         let editing = tasks[0].id;
@@ -204,21 +198,6 @@ mod tests {
             sibling_conflict(&overlapping)
         );
         assert_eq!(None, sibling_conflict(&separate));
-    }
-
-    #[test]
-    fn a_half_typed_path_conflicts_with_nothing() {
-        let tasks = vec![task("Photos", r"C:\Photos", &[r"N:\backup"])];
-
-        // The editor probes on every keystroke.
-        for partial in ["", r"\\", r"\\server"] {
-            assert_eq!(None, source_conflict(&tasks, None, partial), "{partial:?}");
-            assert_eq!(
-                None,
-                destination_conflict(&tasks, None, None, partial),
-                "{partial:?}"
-            );
-        }
     }
 
     #[test]

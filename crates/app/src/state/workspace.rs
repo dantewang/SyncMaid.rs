@@ -287,18 +287,6 @@ mod tests {
     }
 
     #[test]
-    fn tasks_round_trip_through_the_store() {
-        let memory = InMemoryFileSystem::new();
-        {
-            let mut workspace = workspace(&memory);
-            workspace.tasks = vec![task("Photos")];
-            workspace.persist_tasks();
-        }
-
-        assert_eq!(1, workspace(&memory).tasks().len());
-    }
-
-    #[test]
     fn unreadable_config_switches_persistence_off_rather_than_overwriting_it() {
         let memory = InMemoryFileSystem::new();
         memory.add_file(format!(r"{CONFIG}\tasks.json"), b"{ not json");

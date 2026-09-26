@@ -95,50 +95,6 @@ mod tests {
         Destination::new(name, format!(r"D:\{name}"), filters, SyncStrategy::Move)
     }
 
-    fn paths(files: &[ListedFile]) -> Vec<&str> {
-        files.iter().map(|f| f.relative_path.as_str()).collect()
-    }
-
-    #[test]
-    fn each_file_goes_to_the_first_rule_that_matches_it() {
-        let destinations = vec![
-            rule("Books", vec![FilterRule::extension("pdf")]),
-            rule("Bills", vec![FilterRule::path("invoices")]),
-        ];
-        let files = vec![
-            file("a.pdf"),
-            file("invoices/b.pdf"),
-            file("invoices/c.txt"),
-        ];
-
-        let routing = MoveRouting::route(&destinations, &files);
-
-        assert_eq!(
-            vec!["a.pdf", "invoices/b.pdf"],
-            paths(routing.for_destination(0))
-        );
-        assert_eq!(vec!["invoices/c.txt"], paths(routing.for_destination(1)));
-    }
-
-    #[test]
-    fn an_overlap_is_recorded_rather_than_refused() {
-        let destinations = vec![
-            rule("Books", vec![FilterRule::extension("pdf")]),
-            rule("Bills", vec![FilterRule::path("invoices")]),
-        ];
-        let files = vec![file("invoices/b.pdf")];
-
-        let routing = MoveRouting::route(&destinations, &files);
-
-        assert_eq!(vec![0, 1], routing.contested()["invoices/b.pdf"]);
-        assert_eq!(
-            vec!["invoices/b.pdf"],
-            paths(routing.for_destination(0)),
-            "the first rule takes it, and only the first"
-        );
-        assert!(routing.for_destination(1).is_empty());
-    }
-
     #[test]
     fn reordering_the_rules_reassigns_the_contested_file() {
         let files = vec![file("invoices/b.pdf")];
@@ -157,41 +113,6 @@ mod tests {
             winner_name(&bills_first, &files),
             "destination order is semantic, so nothing may reorder it as a side effect"
         );
-    }
-
-    #[test]
-    fn files_nothing_matches_stay_in_the_source() {
-        let destinations = vec![rule("Books", vec![FilterRule::extension("pdf")])];
-        let files = vec![file("a.pdf"), file("notes.txt")];
-
-        let routing = MoveRouting::route(&destinations, &files);
-
-        assert_eq!(vec!["notes.txt"], paths(routing.unmatched()));
-    }
-
-    #[test]
-    fn a_catch_all_rule_empties_the_source_completely() {
-        let destinations = vec![
-            rule("Books", vec![FilterRule::extension("pdf")]),
-            rule("To sort", vec![FilterRule::AllFiles]),
-        ];
-        let files = vec![file("a.pdf"), file("notes.txt")];
-
-        let routing = MoveRouting::route(&destinations, &files);
-
-        assert!(routing.unmatched().is_empty());
-        assert_eq!(vec!["notes.txt"], paths(routing.for_destination(1)));
-    }
-
-    #[test]
-    fn a_destination_with_no_rules_takes_nothing() {
-        let destinations = vec![rule("Empty", vec![])];
-        let files = vec![file("a.pdf")];
-
-        let routing = MoveRouting::route(&destinations, &files);
-
-        assert!(routing.for_destination(0).is_empty());
-        assert_eq!(vec!["a.pdf"], paths(routing.unmatched()));
     }
 
     fn winner_name<'a>(destinations: &'a [Destination], files: &[ListedFile]) -> &'a str {

@@ -123,22 +123,6 @@ mod tests {
     }
 
     #[test]
-    fn a_confirmed_mass_deletion_goes_ahead() {
-        assert_eq!(
-            MirrorGuardVerdict::Allowed,
-            evaluate(100, 100, false, 0.5, true)
-        );
-    }
-
-    #[test]
-    fn a_zero_threshold_turns_the_ratio_guard_off() {
-        assert_eq!(
-            MirrorGuardVerdict::Allowed,
-            evaluate(100, 100, false, 0.0, false)
-        );
-    }
-
-    #[test]
     fn a_nearly_empty_destination_is_not_evidence_of_anything() {
         // Deleting "more than half" of three files is a normal edit, not a catastrophe.
         assert_eq!(

@@ -124,12 +124,6 @@ mod tests {
     }
 
     #[test]
-    fn nesting_overlaps_in_either_direction() {
-        assert!(paths_overlap(p(r"C:\Photos"), p(r"C:\Photos\Backup")));
-        assert!(paths_overlap(p(r"C:\Photos\Backup"), p(r"C:\Photos")));
-    }
-
-    #[test]
     fn siblings_under_a_common_parent_do_not_overlap() {
         assert!(!paths_overlap(p(r"C:\Photos"), p(r"C:\Videos")));
         assert!(

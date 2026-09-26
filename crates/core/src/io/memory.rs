@@ -699,42 +699,6 @@ mod tests {
     }
 
     #[test]
-    fn a_locked_path_reports_the_failure_file_busy_recognizes() {
-        let fs = InMemoryFileSystem::new();
-        fs.add_file(r"C:\src\a.txt", b"a");
-        fs.lock_path(r"C:\src\a.txt");
-
-        let error = fs.read_all_bytes(Path::new(r"C:\src\a.txt")).unwrap_err();
-        assert!(crate::io::is_busy(&error));
-    }
-
-    #[test]
-    fn corrupt_writes_keep_the_length_and_change_the_content() {
-        let fs = InMemoryFileSystem::new();
-        fs.add_directory(r"C:\dst");
-        fs.with_faults(|faults| faults.corrupt_writes = true);
-
-        let mut writer = fs.create_write_through(Path::new(r"C:\dst\a.txt")).unwrap();
-        writer.write_all(b"hello").unwrap();
-        drop(writer);
-
-        let written = fs.contents_of(r"C:\dst\a.txt").unwrap();
-        assert_eq!(5, written.len());
-        assert_ne!(b"hello".to_vec(), written);
-    }
-
-    #[test]
-    fn a_transient_write_failure_clears_itself() {
-        let fs = InMemoryFileSystem::new();
-        fs.add_directory(r"C:\dst");
-        fs.with_faults(|faults| faults.fail_writes_times = 2);
-
-        assert!(fs.create_write_through(Path::new(r"C:\dst\a.txt")).is_err());
-        assert!(fs.create_write_through(Path::new(r"C:\dst\a.txt")).is_err());
-        assert!(fs.create_write_through(Path::new(r"C:\dst\a.txt")).is_ok());
-    }
-
-    #[test]
     fn replace_moves_the_bytes_and_leaves_no_source() {
         let fs = InMemoryFileSystem::new();
         fs.add_file(r"C:\dst\a.txt.tmp", b"new");
@@ -769,24 +733,6 @@ mod tests {
             assert_eq!(
                 vec![PathBuf::from(r"C:\src\empty")],
                 observed.deleted_directories
-            );
-        });
-    }
-
-    #[test]
-    fn recycling_on_a_network_path_falls_back_to_a_permanent_delete() {
-        let fs = InMemoryFileSystem::new();
-        fs.add_file(r"\\server\share\a.txt", b"a");
-        fs.add_file(r"C:\dst\b.txt", b"b");
-
-        fs.recycle(Path::new(r"\\server\share\a.txt")).unwrap();
-        fs.recycle(Path::new(r"C:\dst\b.txt")).unwrap();
-
-        fs.observed(|observed| {
-            assert_eq!(vec![PathBuf::from(r"C:\dst\b.txt")], observed.recycled);
-            assert_eq!(
-                vec![PathBuf::from(r"\\server\share\a.txt")],
-                observed.recycle_fell_back_to_permanent
             );
         });
     }

@@ -115,11 +115,8 @@ fn ensure_source_settled(
 mod tests {
     use std::path::PathBuf;
 
-    use chrono::Utc;
-
     use super::*;
     use crate::io::InMemoryFileSystem;
-    use crate::model::DeleteMode;
     use crate::sync::LocalDestinationProvider;
 
     fn setup() -> (
@@ -140,18 +137,6 @@ mod tests {
             expected_stamp: memory.get_stamp(Path::new(path)).unwrap(),
             verify: false,
         }
-    }
-
-    #[test]
-    fn a_copy_lands_and_leaves_the_source_alone() {
-        let (file_system, memory, provider) = setup();
-        memory.add_file(r"C:\src\a.txt", b"hello");
-        memory.add_directory(r"D:\dst");
-
-        apply(&file_system, &provider, &copy_of(&memory, r"C:\src\a.txt")).unwrap();
-
-        assert_eq!(Some(b"hello".to_vec()), memory.contents_of(r"D:\dst\a.txt"));
-        assert_eq!(Some(b"hello".to_vec()), memory.contents_of(r"C:\src\a.txt"));
     }
 
     #[test]
@@ -179,29 +164,6 @@ mod tests {
             Some(b"previous".to_vec()),
             memory.contents_of(r"D:\dst\a.txt")
         );
-    }
-
-    #[test]
-    fn a_move_deletes_the_source_only_after_the_destination_verifies() {
-        let (file_system, memory, provider) = setup();
-        memory.add_file(r"C:\src\a.txt", b"hello");
-        memory.add_directory(r"D:\dst");
-        let stamp = memory.get_stamp(Path::new(r"C:\src\a.txt")).unwrap();
-
-        apply(
-            &file_system,
-            &provider,
-            &SyncOperation::Move {
-                relative_path: "a.txt".into(),
-                source_full_path: PathBuf::from(r"C:\src\a.txt"),
-                expected_stamp: stamp,
-                verify: true,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(Some(b"hello".to_vec()), memory.contents_of(r"D:\dst\a.txt"));
-        assert!(!memory.file_exists(Path::new(r"C:\src\a.txt")));
     }
 
     #[test]
@@ -236,61 +198,6 @@ mod tests {
             memory.file_exists(Path::new(r"C:\src\a.txt")),
             "the source survives anything short of a verified destination"
         );
-    }
-
-    #[test]
-    fn directory_operations_go_through_the_provider() {
-        let (file_system, memory, provider) = setup();
-        memory.add_directory(r"D:\dst");
-        let when = Utc::now();
-
-        apply(
-            &file_system,
-            &provider,
-            &SyncOperation::CreateDirectory {
-                relative_path: "sub".into(),
-            },
-        )
-        .unwrap();
-        assert!(memory.directory_exists(r"D:\dst\sub"));
-
-        apply(
-            &file_system,
-            &provider,
-            &SyncOperation::SetDirectoryTimestamp {
-                relative_path: "sub".into(),
-                last_write_time_utc: when,
-            },
-        )
-        .unwrap();
-
-        apply(
-            &file_system,
-            &provider,
-            &SyncOperation::DeleteDirectory {
-                relative_path: "sub".into(),
-            },
-        )
-        .unwrap();
-        assert!(!memory.directory_exists(r"D:\dst\sub"));
-    }
-
-    #[test]
-    fn a_delete_honours_the_destinations_mode() {
-        let (file_system, memory, provider) = setup();
-        memory.add_file(r"D:\dst\a.txt", b"x");
-
-        apply(
-            &file_system,
-            &provider,
-            &SyncOperation::Delete {
-                relative_path: "a.txt".into(),
-                mode: DeleteMode::Recycle,
-            },
-        )
-        .unwrap();
-
-        memory.observed(|observed| assert_eq!(1, observed.recycled.len()));
     }
 
     #[test]

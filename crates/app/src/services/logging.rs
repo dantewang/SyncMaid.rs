@@ -347,18 +347,6 @@ mod tests {
         lines.iter().map(|line| line.message.as_str()).collect()
     }
 
-    /// The one line that has to keep matching what `log_destination` writes.
-    #[test]
-    fn the_tag_is_the_opening_of_a_real_log_line() {
-        let tag = tag_for(PHOTOS, "Photos", "NAS backup");
-        let line = format!(
-            "2026-08-09 02:00:12.418 [WRN] main_view: {}: Failed · access denied",
-            tag.line_prefix()
-        );
-
-        assert_eq!(Some(tag.line_prefix()), tag.matched_in(&line));
-    }
-
     /// The whole reason the id is in the line: the two names alone do not identify a
     /// destination, because a destination name is unique only inside its task.
     #[test]

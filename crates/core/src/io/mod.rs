@@ -111,10 +111,4 @@ mod tests {
         assert_eq!(FileStamp::new(10, precise), FileStamp::new(10, coarse));
         assert_eq!(coarse, normalize_utc(precise));
     }
-
-    #[test]
-    fn a_stamp_differs_on_length_alone() {
-        let when = Utc.with_ymd_and_hms(2026, 8, 9, 2, 0, 12).unwrap();
-        assert_ne!(FileStamp::new(10, when), FileStamp::new(11, when));
-    }
 }

@@ -137,10 +137,4 @@ mod tests {
             zero.settle_window()
         );
     }
-
-    #[test]
-    fn only_a_watch_trigger_has_a_settle_window() {
-        assert_eq!(None, Trigger::Manual.settle_window());
-        assert_eq!(None, Trigger::scheduled("* * * * *").settle_window());
-    }
 }

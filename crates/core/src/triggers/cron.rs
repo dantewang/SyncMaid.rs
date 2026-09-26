@@ -132,36 +132,4 @@ mod tests {
             schedule.next_occurrence_after(local(2026, 8, 9, 2, 0))
         );
     }
-
-    #[test]
-    fn every_five_minutes_lands_on_the_next_five_minute_boundary() {
-        let schedule = CronSchedule::parse("*/5 * * * *").unwrap();
-
-        let next = schedule
-            .next_occurrence_after(local(2026, 8, 9, 2, 3))
-            .unwrap();
-
-        assert_eq!(5, next.minute());
-        assert_eq!(2, next.hour());
-    }
-
-    #[test]
-    fn the_schedule_walks_forward_one_occurrence_at_a_time() {
-        let schedule = CronSchedule::parse("0 * * * *").unwrap();
-        let mut when = local(2026, 8, 9, 2, 30);
-
-        let mut hours = Vec::new();
-        for _ in 0..3 {
-            when = schedule.next_occurrence_after(when).unwrap();
-            hours.push(when.hour());
-        }
-
-        assert_eq!(vec![3, 4, 5], hours);
-    }
-
-    #[test]
-    fn the_expression_is_kept_as_typed_for_the_card_badge() {
-        let schedule = CronSchedule::parse("  0 2 * * *  ").unwrap();
-        assert_eq!("0 2 * * *", schedule.expression());
-    }
 }

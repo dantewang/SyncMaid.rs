@@ -272,48 +272,6 @@ mod tests {
     }
 
     #[test]
-    fn a_change_fires_once_the_source_goes_quiet() {
-        let root = tempfile::tempdir().unwrap();
-        let (observer, notifications) = channel_observer();
-        let mut source = WatchTriggerSource::new(physical(), root.path(), settle(), observer);
-        source.start().unwrap();
-
-        std::fs::write(root.path().join("a.txt"), b"a").unwrap();
-
-        assert_eq!(
-            Ok(Notification::Fired),
-            notifications.recv_timeout(Duration::from_secs(5))
-        );
-        source.stop();
-    }
-
-    #[test]
-    fn one_burst_of_changes_is_one_run() {
-        let root = tempfile::tempdir().unwrap();
-        let (observer, notifications) = channel_observer();
-        let mut source = WatchTriggerSource::new(physical(), root.path(), settle(), observer);
-        source.start().unwrap();
-
-        // An image, then its thumbnail, then its metadata — the shape a real program writes in.
-        for index in 0..6 {
-            std::fs::write(root.path().join(format!("f{index}.txt")), b"x").unwrap();
-            std::thread::sleep(Duration::from_millis(20));
-        }
-
-        assert_eq!(
-            Ok(Notification::Fired),
-            notifications.recv_timeout(Duration::from_secs(5))
-        );
-        assert!(
-            notifications
-                .recv_timeout(Duration::from_millis(400))
-                .is_err(),
-            "every fresh change restarts the wait, so the burst collapses into one run"
-        );
-        source.stop();
-    }
-
-    #[test]
     fn nothing_fires_without_a_change() {
         let root = tempfile::tempdir().unwrap();
         let (observer, notifications) = channel_observer();

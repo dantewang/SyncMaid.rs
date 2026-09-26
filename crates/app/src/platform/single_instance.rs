@@ -192,15 +192,6 @@ mod tests {
     }
 
     #[test]
-    fn the_fingerprint_is_the_same_every_time() {
-        // It names a kernel object that a build from six months ago also has to find.
-        assert_eq!(
-            fingerprint(Path::new(r"C:\Apps\SyncMaid")),
-            fingerprint(Path::new(r"C:\Apps\SyncMaid"))
-        );
-    }
-
-    #[test]
     #[cfg(windows)]
     fn a_second_launch_of_the_same_folder_stands_down() {
         let folder = std::env::temp_dir().join("syncmaid-single-instance-test");

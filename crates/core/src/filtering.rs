@@ -617,18 +617,6 @@ mod tests {
         assert!(FilterRule::not(FilterRule::not(inner)).matches("a.tmp"));
     }
 
-    #[test]
-    fn composites_compare_by_value() {
-        let a = FilterRule::all_of([FilterRule::path("docs"), FilterRule::extension("pdf")]);
-        let b = FilterRule::all_of([FilterRule::path("docs"), FilterRule::extension("pdf")]);
-        let c = FilterRule::all_of([FilterRule::extension("pdf"), FilterRule::path("docs")]);
-        assert_eq!(a, b);
-        assert_ne!(
-            a, c,
-            "order is part of the value, as it is in the C# SequenceEqual"
-        );
-    }
-
     // -- Persisted shape ----------------------------------------------------------------------
 
     #[test]

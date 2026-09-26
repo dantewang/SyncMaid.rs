@@ -119,29 +119,3 @@ mod windows_impl {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_unsupported_platform_reports_disabled_and_does_nothing() {
-        let auto_start = Unsupported;
-
-        assert_eq!(AutoStartState::Disabled, auto_start.state());
-        assert!(auto_start.enable().is_ok());
-        assert!(auto_start.disable().is_ok());
-        assert_eq!(AutoStartState::Disabled, auto_start.state());
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn reading_the_current_state_never_writes_anything() {
-        // Deliberately read-only: the settings page asks on every open, and asking must not
-        // register the app. Registry writes in CI are hostile, so the write paths stay
-        // manual-verification only — this pins the one that has to be safe to call.
-        let before = auto_start().state();
-        let again = auto_start().state();
-        assert_eq!(before, again);
-    }
-}

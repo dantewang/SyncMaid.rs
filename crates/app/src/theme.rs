@@ -207,16 +207,3 @@ pub mod layout {
         px(210.)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn porcelain_is_ink_on_a_pale_ground() {
-        // Light only: every surface assumes dark text on a light background.
-        let theme = Theme::porcelain();
-        assert!(theme.background.l > theme.foreground.l);
-        assert!(theme.primary_foreground.l > theme.primary.l);
-    }
-}

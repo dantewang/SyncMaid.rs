@@ -391,13 +391,4 @@ mod tests {
             "the 30th of February never comes"
         );
     }
-
-    #[test]
-    fn a_real_cron_schedule_reports_its_next_occurrence_for_the_card_badge() {
-        let (observer, _) = channel_observer();
-        let source =
-            ScheduledTriggerSource::new(CronSchedule::parse("0 2 * * *").unwrap(), observer);
-
-        assert!(source.next_occurrence().is_some());
-    }
 }

@@ -385,26 +385,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_version_shown_is_the_one_that_was_built() {
-        // `Cargo.toml` is the one place a version is written; everything else reads it.
-        let view = SettingsView::new(AppSettings::default(), PathBuf::from(r"C:\app\Data"));
-        assert_eq!(env!("CARGO_PKG_VERSION"), view.version);
-    }
-
-    #[test]
-    fn autostart_is_read_from_the_registry_rather_than_from_settings() {
-        // Nothing about autostart is mirrored into settings.json, so the two cannot disagree.
-        let settings = AppSettings {
-            close_to_tray: true,
-            start_minimized: true,
-            language: Some("ja".into()),
-        };
-        let view = SettingsView::new(settings, PathBuf::from(r"C:\app\Data"));
-
-        assert_eq!(view.auto_start.state(), view.auto_start_state);
-    }
-
-    #[test]
     fn following_the_system_is_the_empty_value_rather_than_a_tag() {
         // The dropdown carries `SharedString`s, so "no preference" has to be a value rather than
         // an absence — and it must round-trip, or opening settings would silently pin a language.

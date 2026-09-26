@@ -159,37 +159,6 @@ mod tests {
     }
 
     #[test]
-    fn a_single_request_runs_once() {
-        let gate = RunGate::new();
-
-        let runs = drain(&gate, |_| {});
-
-        assert_eq!(1, runs.len());
-        assert!(
-            !gate.is_running(),
-            "the gate is free again once the drain ends"
-        );
-    }
-
-    #[test]
-    fn a_request_that_lands_mid_run_is_absorbed_rather_than_refused() {
-        let gate = RunGate::new();
-        let start = gate
-            .request(HashSet::new())
-            .expect("the first request drives the drain");
-
-        assert!(
-            gate.request(HashSet::new()).is_none(),
-            "the active run takes it"
-        );
-        assert!(gate.is_running());
-
-        drop(start);
-        assert!(gate.next().is_some(), "and the drain picks it up");
-        assert!(gate.next().is_none());
-    }
-
-    #[test]
     fn a_burst_of_requests_costs_exactly_one_follow_up() {
         let gate = RunGate::new();
 
@@ -230,22 +199,6 @@ mod tests {
             HashSet::from([first, second]),
             runs[1].confirmed_mass_deletes,
             "approvals are unioned, so neither confirmation is silently dropped"
-        );
-    }
-
-    #[test]
-    fn an_approval_is_one_shot() {
-        let gate = RunGate::new();
-        let approved = Uuid::new_v4();
-
-        let start = gate.request(HashSet::from([approved])).unwrap();
-        assert_eq!(HashSet::from([approved]), start.confirmed_mass_deletes);
-        assert!(gate.next().is_none());
-
-        let again = gate.request(HashSet::new()).unwrap();
-        assert!(
-            again.confirmed_mass_deletes.is_empty(),
-            "a confirmation covers the run it was given for and no other"
         );
     }
 

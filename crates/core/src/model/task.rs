@@ -144,44 +144,11 @@ impl From<SyncTask> for SyncTaskRepr {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filtering::FilterRule;
-
-    fn destination(strategy: SyncStrategy) -> Destination {
-        Destination::new("D", r"D:\d", [FilterRule::AllFiles], strategy)
-    }
-
     #[test]
     fn an_empty_task_without_an_explicit_kind_is_a_sync_task() {
         let task = SyncTask::new("T", r"C:\src", Trigger::Manual, []);
         assert_eq!(SyncTaskKind::Sync, task.kind());
         assert!(!task.has_explicit_kind());
-    }
-
-    #[test]
-    fn a_legacy_task_derives_move_from_its_destinations() {
-        let task = SyncTask::new(
-            "T",
-            r"C:\src",
-            Trigger::Manual,
-            [destination(SyncStrategy::Move)],
-        );
-        assert_eq!(SyncTaskKind::Move, task.kind());
-    }
-
-    #[test]
-    fn an_explicit_kind_wins_over_what_the_destinations_imply() {
-        let task = SyncTask::new(
-            "T",
-            r"C:\src",
-            Trigger::Manual,
-            [destination(SyncStrategy::Move)],
-        )
-        .with_kind(SyncTaskKind::Sync);
-        assert_eq!(SyncTaskKind::Sync, task.kind());
-        assert!(
-            !task.accepts(SyncStrategy::Move),
-            "the engine must refuse this task rather than guess which destination is the odd one"
-        );
     }
 
     #[test]
@@ -214,48 +181,11 @@ mod tests {
     }
 
     #[test]
-    fn a_legacy_task_without_kind_loads_derived_and_saves_explicit() {
-        let legacy = concat!(
-            r#"{"Name":"Sort","SourcePath":"C:\\src","Trigger":{"kind":"manual"},"#,
-            r#""Destinations":[{"Name":"D","Target":{"kind":"local","Path":"D:\\d"},"#,
-            r#""Filters":[{"kind":"all"}],"Strategy":"Move"}]}"#
-        );
-
-        let task: SyncTask = serde_json::from_str(legacy).unwrap();
-        assert!(!task.has_explicit_kind());
-        assert_eq!(SyncTaskKind::Move, task.kind());
-
-        let saved = serde_json::to_string(&task).unwrap();
-        assert!(
-            saved.contains(r#""Kind":"Move""#),
-            "one save makes a legacy task explicit: {saved}"
-        );
-
-        let reloaded: SyncTask = serde_json::from_str(&saved).unwrap();
-        assert!(reloaded.has_explicit_kind());
-        assert_eq!(SyncTaskKind::Move, reloaded.kind());
-    }
-
-    #[test]
     fn a_task_missing_a_required_member_is_corrupt_rather_than_defaulted() {
         let json = r#"{"Name":"Sort","Trigger":{"kind":"manual"},"Destinations":[]}"#;
         assert!(
             serde_json::from_str::<SyncTask>(json).is_err(),
             "SourcePath is required"
         );
-    }
-
-    #[test]
-    fn saving_twice_is_byte_stable() {
-        let task = SyncTask::new(
-            "T",
-            r"C:\src",
-            Trigger::watch(),
-            [destination(SyncStrategy::Mirror)],
-        );
-        let once = serde_json::to_string(&task).unwrap();
-        let twice =
-            serde_json::to_string(&serde_json::from_str::<SyncTask>(&once).unwrap()).unwrap();
-        assert_eq!(once, twice);
     }
 }

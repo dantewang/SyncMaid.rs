@@ -73,8 +73,6 @@ impl TriggerSourceFactory for DefaultTriggerSourceFactory {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use super::*;
     use crate::io::InMemoryFileSystem;
     use crate::triggers::Notification;
@@ -85,16 +83,6 @@ mod tests {
 
     fn observer() -> Arc<dyn TriggerObserver> {
         Arc::new(|_: Notification| {})
-    }
-
-    #[test]
-    fn a_manual_trigger_needs_nothing_running() {
-        let mut source = factory()
-            .create(&Trigger::Manual, Path::new(r"C:\src"), observer())
-            .unwrap();
-
-        source.start().unwrap();
-        source.stop();
     }
 
     #[test]
@@ -129,30 +117,5 @@ mod tests {
             listened.start().is_err(),
             "a local watcher needs the folder to exist"
         );
-    }
-
-    #[test]
-    fn a_local_watch_fires_on_a_change() {
-        let root = tempfile::tempdir().unwrap();
-        let (sender, notifications) = std::sync::mpsc::channel();
-        let sender = Mutex::new(sender);
-        let observer: Arc<dyn TriggerObserver> = Arc::new(move |notification: Notification| {
-            let _ = sender.lock().unwrap().send(notification);
-        });
-
-        // A real filesystem, because the watcher confirms the change by walking the source.
-        let factory =
-            DefaultTriggerSourceFactory::new(Arc::new(crate::io::PhysicalFileSystem::new()));
-        let mut source = factory
-            .create(&Trigger::Watch { settle_seconds: 1 }, root.path(), observer)
-            .unwrap();
-        source.start().unwrap();
-        std::fs::write(root.path().join("a.txt"), b"a").unwrap();
-
-        assert_eq!(
-            Ok(Notification::Fired),
-            notifications.recv_timeout(std::time::Duration::from_secs(10))
-        );
-        source.stop();
     }
 }

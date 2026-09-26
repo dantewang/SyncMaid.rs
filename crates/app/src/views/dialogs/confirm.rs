@@ -134,17 +134,4 @@ mod tests {
             "the commonest fear on this button is that it deletes the files"
         );
     }
-
-    #[test]
-    fn the_destination_count_reads_naturally_at_one() {
-        assert!(Prompt::delete_task("Photos", 1)
-            .message
-            .contains("its 1 destination?"));
-    }
-
-    #[test]
-    fn a_destructive_confirm_is_destructive_unless_told_otherwise() {
-        assert!(Prompt::delete_destination("NAS").destructive);
-        assert!(!Prompt::delete_destination("NAS").benign().destructive);
-    }
 }

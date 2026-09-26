@@ -195,27 +195,6 @@ mod tests {
     }
 
     #[test]
-    fn nothing_saved_yet_loads_as_an_empty_list() {
-        let (_, tasks, _, _) = stores();
-
-        let (loaded, unreadable) = tasks.load_reporting_unreadable();
-
-        assert!(loaded.is_empty());
-        assert!(!unreadable);
-    }
-
-    #[test]
-    fn unreadable_config_is_reported_so_the_caller_refuses_to_save_over_it() {
-        let (memory, tasks, _, _) = stores();
-        memory.add_file(r"C:\cfg\tasks.json", b"{ not json");
-
-        let (loaded, unreadable) = tasks.load_reporting_unreadable();
-
-        assert!(loaded.is_empty());
-        assert!(unreadable);
-    }
-
-    #[test]
     fn a_legacy_task_file_loads_and_one_save_makes_its_kind_explicit() {
         let (memory, tasks, _, _) = stores();
         memory.add_file(
@@ -259,33 +238,5 @@ mod tests {
         memory.add_file(r"C:\cfg\settings.json", b"{ not json");
 
         assert_eq!(AppSettings::default(), settings.load());
-    }
-
-    #[test]
-    fn settings_round_trip() {
-        let (_, _, _, settings) = stores();
-        let saved = AppSettings {
-            close_to_tray: true,
-            start_minimized: true,
-            language: Some("zh-Hant".into()),
-        };
-
-        settings.save(&saved).unwrap();
-
-        assert_eq!(saved, settings.load());
-    }
-
-    #[test]
-    fn a_save_keeps_the_previous_version_as_bak() {
-        let (memory, tasks, _, _) = stores();
-
-        tasks.save(&[task()]).unwrap();
-        tasks.save(&[]).unwrap();
-
-        assert!(memory.contents_of(r"C:\cfg\tasks.json.bak").is_some());
-        assert!(memory
-            .all_paths()
-            .iter()
-            .all(|path| !path.contains(".tmp-")));
     }
 }

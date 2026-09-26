@@ -384,8 +384,7 @@ fn turning_the_ratio_guard_off_lets_a_mass_deletion_through() {
 
 #[test]
 fn mirror_deletions_go_to_the_recycle_bin_by_default_and_permanently_on_request() {
-    for (mode, recycled, permanent) in [(DeleteMode::Recycle, 1, 0), (DeleteMode::Permanent, 0, 1)]
-    {
+    for (mode, recycled) in [(DeleteMode::Recycle, 1), (DeleteMode::Permanent, 0)] {
         let fs = memory();
         fs.add_file(r"C:\src\keep.txt", b"k");
         fs.add_file(r"D:\dst\keep.txt", b"k");
@@ -399,7 +398,6 @@ fn mirror_deletions_go_to_the_recycle_bin_by_default_and_permanently_on_request(
         fs.observed(|observed| {
             assert_eq!(recycled, observed.recycled.len(), "{mode:?}");
         });
-        let _ = permanent;
         assert!(!fs.file_exists(Path::new(r"D:\dst\orphan.txt")));
     }
 }
@@ -480,6 +478,20 @@ fn a_locked_source_file_is_deferred_and_the_rest_of_the_run_carries_on() {
     assert_eq!(1, statuses[0].files_deferred);
     assert!(statuses[0].error.is_none(), "a file in use is not an error");
     assert!(fs.file_exists(Path::new(r"D:\dst\fine.txt")));
+}
+
+#[test]
+fn a_write_that_fails_briefly_is_retried_and_the_run_succeeds() {
+    let fs = memory();
+    fs.add_file(r"C:\src\a.txt", b"a");
+    fs.with_faults(|faults| faults.fail_writes_times = 2);
+    let task = sync_task(vec![add_only("D", DESTINATION, vec![FilterRule::AllFiles])]);
+
+    // The shipping engine: its backoff is what absorbs a fault that clears itself.
+    let statuses = run(&engine_with_default_retry(&fs), &task);
+
+    assert_eq!(SyncOutcome::Success, statuses[0].outcome);
+    assert_eq!(Some(b"a".to_vec()), fs.contents_of(r"D:\dst\a.txt"));
 }
 
 #[test]

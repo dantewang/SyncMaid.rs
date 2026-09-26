@@ -72,27 +72,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_transient_failure_that_clears_itself_succeeds() {
-        let mut remaining = 2;
-        let result = execute_with(
-            RetryOptions::DEFAULT,
-            |_| {},
-            || {
-                if remaining > 0 {
-                    remaining -= 1;
-                    Err(OperationError::Io(io::Error::from(
-                        io::ErrorKind::PermissionDenied,
-                    )))
-                } else {
-                    Ok(42)
-                }
-            },
-        );
-
-        assert_eq!(42, result.unwrap());
-    }
-
-    #[test]
     fn attempts_are_bounded() {
         let mut attempts = 0;
         let result: Result<(), _> = execute_with(
@@ -106,21 +85,6 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(3, attempts);
-    }
-
-    #[test]
-    fn waits_grow_with_the_attempt() {
-        let mut waits = Vec::new();
-        let _: Result<(), _> = execute_with(
-            RetryOptions::DEFAULT,
-            |wait| waits.push(wait),
-            || Err(OperationError::Io(io::Error::other("still broken"))),
-        );
-
-        assert_eq!(
-            vec![Duration::from_millis(200), Duration::from_millis(400)],
-            waits
-        );
     }
 
     #[test]

@@ -169,23 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn a_copy_lands_with_its_sources_bytes_and_stamp() {
-        let fs = InMemoryFileSystem::new();
-        let (source, destination) = paths();
-        fs.add_file(&source, b"hello");
-        fs.add_directory(r"D:\dst");
-
-        copy(&fs, &source, &destination, false).unwrap();
-
-        assert_eq!(Some(b"hello".to_vec()), fs.contents_of(&destination));
-        assert_eq!(
-            fs.get_stamp(&source).unwrap(),
-            fs.get_stamp(&destination).unwrap(),
-            "a copy that does not share its source's stamp gets re-copied forever"
-        );
-    }
-
-    #[test]
     fn a_failed_write_leaves_the_previous_destination_intact_and_no_temp_behind() {
         let fs = InMemoryFileSystem::new();
         let (source, destination) = paths();

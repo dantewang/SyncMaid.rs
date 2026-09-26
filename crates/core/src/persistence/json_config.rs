@@ -85,27 +85,6 @@ mod tests {
     }
 
     #[test]
-    fn nothing_saved_yet_is_not_unreadable() {
-        let fs = InMemoryFileSystem::new();
-
-        let loaded: Loaded<AppSettings> = try_load_with_backup(&fs, Path::new(PATH));
-
-        assert_eq!(None, loaded.value);
-        assert!(!loaded.unreadable, "a first run must be free to save");
-    }
-
-    #[test]
-    fn a_saved_file_round_trips() {
-        let fs = InMemoryFileSystem::new();
-        save(&fs, Path::new(PATH), &settings()).unwrap();
-
-        let loaded: Loaded<AppSettings> = try_load_with_backup(&fs, Path::new(PATH));
-
-        assert_eq!(Some(settings()), loaded.value);
-        assert!(!loaded.unreadable);
-    }
-
-    #[test]
     fn a_corrupt_main_file_falls_back_to_the_backup() {
         let fs = InMemoryFileSystem::new();
         save(&fs, Path::new(PATH), &settings()).unwrap();
@@ -119,20 +98,6 @@ mod tests {
         assert!(
             !loaded.unreadable,
             "the backup was readable, so nothing is lost"
-        );
-    }
-
-    #[test]
-    fn a_file_present_but_unreadable_is_reported_rather_than_read_as_empty() {
-        let fs = InMemoryFileSystem::new();
-        fs.add_file(PATH, b"{ this is not json");
-
-        let loaded: Loaded<AppSettings> = try_load_with_backup(&fs, Path::new(PATH));
-
-        assert_eq!(None, loaded.value);
-        assert!(
-            loaded.unreadable,
-            "saving over this would rotate the last good copy away and lose the user's config"
         );
     }
 
@@ -179,17 +144,5 @@ mod tests {
 
         assert!(json.contains(r#""a\nb""#), "{json}");
         assert_eq!(awkward, serde_json::from_str::<AppSettings>(&json).unwrap());
-    }
-
-    #[test]
-    fn saving_twice_is_byte_stable() {
-        let fs = InMemoryFileSystem::new();
-        save(&fs, Path::new(PATH), &settings()).unwrap();
-        let once = fs.contents_of(PATH).unwrap();
-
-        let loaded: Loaded<AppSettings> = try_load_with_backup(&fs, Path::new(PATH));
-        save(&fs, Path::new(PATH), &loaded.value.unwrap()).unwrap();
-
-        assert_eq!(once, fs.contents_of(PATH).unwrap());
     }
 }

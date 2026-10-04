@@ -13,11 +13,11 @@
 //!   hand-edited `tasks.json`; it is carried through untouched and shown as a read-only row
 //!   rather than silently rewritten into something the user did not ask for.
 
-use syncmaid_core::filtering::FilterRule;
+use syncmaid_core::filtering::{FilterError, FilterRule};
 
 use crate::strings;
 
-/// Which of the three rule kinds the editor offers.
+/// Which of the four rule kinds the editor offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterKind {
     /// A folder relative to the source root, e.g. `photos/2024`.
@@ -27,6 +27,8 @@ pub enum FilterKind {
     Extension,
     /// A glob against the whole relative path, e.g. `**/ChatGPT*.png`.
     Wildcard,
+    /// A regular expression searched for in the relative path, e.g. `^IMG_\d+\.jpg$`.
+    Regex,
 }
 
 impl FilterKind {
@@ -35,6 +37,7 @@ impl FilterKind {
             Self::Path => "Path",
             Self::Extension => "Extension",
             Self::Wildcard => "Wildcard",
+            Self::Regex => "Regex",
         }
     }
 
@@ -43,6 +46,7 @@ impl FilterKind {
             Self::Path => 0,
             Self::Extension => 1,
             Self::Wildcard => 2,
+            Self::Regex => 3,
         }
     }
 
@@ -50,6 +54,7 @@ impl FilterKind {
         match index {
             1 => Self::Extension,
             2 => Self::Wildcard,
+            3 => Self::Regex,
             _ => Self::Path,
         }
     }
@@ -78,11 +83,17 @@ impl FilterEntry {
         self
     }
 
+    /// Why this rule's pattern does not compile, if it does not.
+    pub fn filter_error(&self) -> Option<FilterError> {
+        self.to_rule().first_error()
+    }
+
     fn to_rule(&self) -> FilterRule {
         let rule = match self.kind {
             FilterKind::Path => FilterRule::path(&self.pattern),
             FilterKind::Extension => FilterRule::extension(&self.pattern),
             FilterKind::Wildcard => FilterRule::wildcard(&self.pattern),
+            FilterKind::Regex => FilterRule::regex(&self.pattern),
         };
         if self.excluded {
             FilterRule::not(rule)
@@ -97,6 +108,8 @@ impl FilterEntry {
             // A trailing slash is what makes a path read as a folder rather than a file.
             FilterKind::Path => format!("{}/", self.pattern.trim_end_matches('/')),
             FilterKind::Extension | FilterKind::Wildcard => self.pattern.clone(),
+            // Slashes are how a regex is usually set apart from the prose around it.
+            FilterKind::Regex => format!("/{}/", self.pattern),
         };
         if self.excluded {
             format!("{}{body}", strings::filter_not())
@@ -121,6 +134,7 @@ impl FilterEntry {
                 Some(Self::new(FilterKind::Extension, filter.extension()))
             }
             FilterRule::Wildcard(filter) => Some(Self::new(FilterKind::Wildcard, filter.pattern())),
+            FilterRule::Regex(filter) => Some(Self::new(FilterKind::Regex, filter.pattern())),
             _ => None,
         }
     }
@@ -342,6 +356,14 @@ impl FilterModel {
             strings::filter_or()
         };
         Summary::Selection(described.join(joiner))
+    }
+
+    /// The first rule whose pattern does not compile, which blocks the save.
+    ///
+    /// Read off the rules as they would be saved, so a broken pattern in a hand-edited rule the
+    /// editor cannot draw blocks the save as well — saving would write it back unchanged.
+    pub fn filter_error(&self) -> Option<FilterError> {
+        self.to_rules().iter().find_map(FilterRule::first_error)
     }
 
     /// True when the destination would select nothing, which blocks the save.
@@ -573,6 +595,41 @@ mod tests {
         assert!(empty.selects_nothing());
         assert!(empty.to_rules().is_empty());
         assert!(!FilterModel::all().selects_nothing());
+    }
+
+    #[test]
+    fn a_regex_rule_round_trips_and_reads_between_slashes() {
+        let model = only(vec![FilterGroup::all(vec![
+            FilterEntry::new(FilterKind::Regex, r"^IMG_\d+"),
+            extension("jpg"),
+        ])]);
+
+        assert_eq!(
+            vec![FilterRule::all_of([
+                FilterRule::regex(r"^IMG_\d+"),
+                FilterRule::extension("jpg"),
+            ])],
+            model.to_rules()
+        );
+        assert_eq!(model, FilterModel::of(&model.to_rules()));
+        assert_eq!(r"Syncs: /^IMG_\d+/ and jpg", model.describe());
+    }
+
+    #[test]
+    fn a_regex_that_does_not_compile_blocks_the_save_wherever_it_sits() {
+        let drawn = only(vec![FilterGroup::any(vec![FilterEntry::new(
+            FilterKind::Regex,
+            "(jpg",
+        )])]);
+        // Nesting the editor cannot draw — only a hand-edited tasks.json produces it.
+        let opaque = FilterModel::of(&[FilterRule::any_of([FilterRule::all_of([
+            FilterRule::extension("jpg"),
+            FilterRule::regex("["),
+        ])])]);
+
+        assert_eq!("(jpg", drawn.filter_error().unwrap().pattern());
+        assert_eq!("[", opaque.filter_error().unwrap().pattern());
+        assert!(FilterModel::all().filter_error().is_none());
     }
 
     #[test]

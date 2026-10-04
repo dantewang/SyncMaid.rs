@@ -6316,6 +6316,7 @@ dependencies = [
  "chrono",
  "croner",
  "notify",
+ "regex",
  "serde",
  "serde_json",
  "syncmaid-core",

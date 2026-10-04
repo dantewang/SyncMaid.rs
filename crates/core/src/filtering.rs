@@ -4,10 +4,11 @@
 //! as produced by [`crate::io::TreeListing`] — and every comparison is case-insensitive,
 //! because the only supported source and destination filesystems are Windows ones.
 //!
-//! Three rules deliberately match *nothing* when they are empty: a blank path prefix, a blank
-//! extension, and a blank wildcard pattern. Selecting everything is [`FilterRule::AllFiles`]'s
+//! Four rules deliberately match *nothing* when they are empty: a blank path prefix, a blank
+//! extension, a blank wildcard pattern and a blank regex. Selecting everything is [`FilterRule::AllFiles`]'s
 //! job, and an empty `AllOf`/`AnyOf` is a half-built rule, not a wildcard.
 
+use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::text::{chars_equal_ignore_case, ends_with_ignore_case, eq_ignore_case};
@@ -29,6 +30,9 @@ pub enum FilterRule {
     /// Matches a glob against the whole relative path, e.g. `**/ChatGPT*.png`.
     #[serde(rename = "wildcard")]
     Wildcard(WildcardFilter),
+    /// Matches a regular expression anywhere in the relative path, e.g. `^IMG_\d+\.jpg$`.
+    #[serde(rename = "regex")]
+    Regex(RegexFilter),
     /// Matches when every nested rule matches. Empty matches nothing.
     #[serde(rename = "allOf")]
     AllOf(CompositeFilter),
@@ -56,6 +60,11 @@ impl FilterRule {
         Self::Wildcard(WildcardFilter::new(pattern))
     }
 
+    /// A regex rule, matched case-insensitively and unanchored against the relative path.
+    pub fn regex(pattern: impl AsRef<str>) -> Self {
+        Self::Regex(RegexFilter::new(pattern))
+    }
+
     /// Matches when every nested rule matches; an empty list matches nothing.
     pub fn all_of(rules: impl IntoIterator<Item = FilterRule>) -> Self {
         Self::AllOf(CompositeFilter::new(rules))
@@ -79,6 +88,7 @@ impl FilterRule {
             Self::Path(f) => f.matches(relative_path),
             Self::Extension(f) => f.matches(relative_path),
             Self::Wildcard(f) => f.matches(relative_path),
+            Self::Regex(f) => f.matches(relative_path),
             Self::AllOf(f) => {
                 !f.rules.is_empty() && f.rules.iter().all(|r| r.matches(relative_path))
             }
@@ -90,6 +100,40 @@ impl FilterRule {
     /// True for the lone all-files rule a Mirror destination must carry.
     pub fn is_all_files(&self) -> bool {
         matches!(self, Self::AllFiles)
+    }
+
+    /// The first rule in this tree that cannot mean what it says, if any.
+    ///
+    /// A broken rule matches nothing, which is not a safe reading of it: under a `Not` it
+    /// selects everything, and in a Move task's rule list it hands its files to the next rule.
+    /// So a destination carrying one is refused rather than run.
+    pub fn first_error(&self) -> Option<FilterError> {
+        match self {
+            Self::Regex(f) => f.error(),
+            Self::AllOf(f) | Self::AnyOf(f) => f.rules.iter().find_map(Self::first_error),
+            Self::Not(f) => f.rule.first_error(),
+            Self::AllFiles | Self::Path(_) | Self::Extension(_) | Self::Wildcard(_) => None,
+        }
+    }
+}
+
+/// A rule whose pattern does not compile.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("'{pattern}' is not a valid regular expression: {reason}")]
+pub struct FilterError {
+    pattern: String,
+    reason: String,
+}
+
+impl FilterError {
+    /// The pattern as written.
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+
+    /// Why it does not compile, in the regex engine's own words.
+    pub fn reason(&self) -> &str {
+        &self.reason
     }
 }
 
@@ -304,6 +348,101 @@ impl From<WildcardRepr> for WildcardFilter {
 
 impl From<WildcardFilter> for WildcardRepr {
     fn from(filter: WildcardFilter) -> Self {
+        Self {
+            pattern: filter.pattern,
+        }
+    }
+}
+
+/// A regular expression searched for in the relative path.
+///
+/// Unanchored, so `^` and `$` are how a pattern pins itself to the whole path; case-insensitive
+/// like every other rule, with `(?-i)` as the way out. The path always reaches it with `/`
+/// between folders, because `\` already means something in a regex.
+///
+/// A pattern that does not compile still loads — failing the parse would mark the whole
+/// `tasks.json` corrupt — and keeps its reason for [`FilterRule::first_error`].
+///
+/// Equality compares the pattern only: the compiled regex is a cache.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "RegexRepr", into = "RegexRepr")]
+pub struct RegexFilter {
+    pattern: String,
+    compiled: Result<Regex, String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RegexRepr {
+    #[serde(rename = "Pattern")]
+    pattern: String,
+}
+
+impl PartialEq for RegexFilter {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern
+    }
+}
+
+impl Eq for RegexFilter {}
+
+impl RegexFilter {
+    pub fn new(pattern: impl AsRef<str>) -> Self {
+        let pattern = pattern.as_ref().to_owned();
+        let compiled = RegexBuilder::new(&pattern)
+            .case_insensitive(true)
+            .build()
+            .map_err(|error| match error {
+                // The full message draws a caret under the pattern across several lines; the
+                // last one is the sentence that says what is wrong.
+                regex::Error::Syntax(message) => message
+                    .lines()
+                    .rev()
+                    .find_map(|line| line.strip_prefix("error: "))
+                    .unwrap_or(&message)
+                    .trim()
+                    .to_owned(),
+                other => other.to_string(),
+            });
+        Self { pattern, compiled }
+    }
+
+    /// The pattern exactly as the user wrote it.
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+
+    fn error(&self) -> Option<FilterError> {
+        self.compiled.as_ref().err().map(|reason| FilterError {
+            pattern: self.pattern.clone(),
+            reason: reason.clone(),
+        })
+    }
+
+    fn matches(&self, relative_path: &str) -> bool {
+        // An empty pattern matches every path. Selecting everything is `AllFiles`'s job, so a
+        // blank pattern is a half-built rule and matches nothing.
+        if self.pattern.is_empty() {
+            return false;
+        }
+        let Ok(regex) = &self.compiled else {
+            return false;
+        };
+        if relative_path.contains('\\') {
+            regex.is_match(&relative_path.replace('\\', "/"))
+        } else {
+            regex.is_match(relative_path)
+        }
+    }
+}
+
+impl From<RegexRepr> for RegexFilter {
+    fn from(repr: RegexRepr) -> Self {
+        Self::new(repr.pattern)
+    }
+}
+
+impl From<RegexFilter> for RegexRepr {
+    fn from(filter: RegexFilter) -> Self {
         Self {
             pattern: filter.pattern,
         }
@@ -585,6 +724,69 @@ mod tests {
         );
     }
 
+    // -- Regex --------------------------------------------------------------------------------
+
+    #[test]
+    fn regex_matches_anywhere_in_the_relative_path_unless_anchored() {
+        let loose = FilterRule::regex(r"IMG_\d{4}");
+        assert!(loose.matches("photos/2024/IMG_0042.jpg"));
+        assert!(!loose.matches("photos/IMG_42.jpg"));
+
+        let anchored = FilterRule::regex(r"^photos/[^/]+\.jpg$");
+        assert!(anchored.matches("photos/a.jpg"));
+        assert!(!anchored.matches("photos/2024/a.jpg"));
+        assert!(!anchored.matches("old/photos/a.jpg"));
+    }
+
+    #[test]
+    fn regex_ignores_case_like_every_other_rule() {
+        assert!(FilterRule::regex(r"\.jpe?g$").matches("A.JPEG"));
+    }
+
+    #[test]
+    fn regex_sees_forward_slashes_whichever_separator_the_path_arrives_with() {
+        assert!(FilterRule::regex("^photos/2024/").matches("photos\\2024\\a.jpg"));
+    }
+
+    #[test]
+    fn empty_regex_matches_nothing() {
+        assert!(!FilterRule::regex("").matches("a.txt"));
+        assert!(FilterRule::regex("").first_error().is_none());
+    }
+
+    #[test]
+    fn an_invalid_regex_matches_nothing_and_says_why() {
+        let rule = FilterRule::regex("photos/(2024");
+
+        assert!(!rule.matches("photos/(2024/a.jpg"));
+        let error = rule.first_error().expect("an unclosed group is reported");
+        assert_eq!("photos/(2024", error.pattern());
+        assert_eq!("unclosed group", error.reason());
+    }
+
+    #[test]
+    fn an_invalid_regex_still_loads_so_the_config_is_not_taken_for_corrupt() {
+        let json = r#"{"kind":"regex","Pattern":"(?<=a)b"}"#;
+
+        let rule: FilterRule = serde_json::from_str(json).unwrap();
+
+        assert!(rule.first_error().is_some(), "look-behind is not supported");
+        assert_eq!(json, serde_json::to_string(&rule).unwrap());
+    }
+
+    #[test]
+    fn an_invalid_regex_is_found_under_composites_and_negation() {
+        let rule = FilterRule::all_of([
+            FilterRule::extension("jpg"),
+            FilterRule::not(FilterRule::any_of([FilterRule::regex("[")])),
+        ]);
+
+        assert_eq!("[", rule.first_error().unwrap().pattern());
+        assert!(FilterRule::all_of([FilterRule::regex("^a")])
+            .first_error()
+            .is_none());
+    }
+
     // -- Composites ---------------------------------------------------------------------------
 
     #[test]
@@ -620,7 +822,7 @@ mod tests {
     // -- Persisted shape ----------------------------------------------------------------------
 
     #[test]
-    fn rules_round_trip_through_the_legacy_json_shape() {
+    fn rules_round_trip_through_their_persisted_json_shape() {
         let cases = [
             (FilterRule::AllFiles, r#"{"kind":"all"}"#),
             (
@@ -634,6 +836,10 @@ mod tests {
             (
                 FilterRule::wildcard("**/a*.png"),
                 r#"{"kind":"wildcard","Pattern":"**/a*.png"}"#,
+            ),
+            (
+                FilterRule::regex(r"^IMG_\d+\.jpg$"),
+                r#"{"kind":"regex","Pattern":"^IMG_\\d+\\.jpg$"}"#,
             ),
             (
                 FilterRule::not(FilterRule::extension("tmp")),

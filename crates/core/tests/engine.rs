@@ -233,6 +233,61 @@ fn a_destination_nested_in_its_source_is_refused_in_either_direction() {
 }
 
 #[test]
+fn a_destination_whose_regex_does_not_compile_is_refused_and_the_others_still_run() {
+    let fs = memory();
+    fs.add_file(r"C:\src\a.jpg", b"a");
+    // Only a hand-edited config can produce this — the editor will not save a broken pattern.
+    let task = sync_task(vec![
+        add_only(
+            "Broken",
+            r"D:\broken",
+            vec![FilterRule::not(FilterRule::regex("(jpg"))],
+        ),
+        add_only("Fine", r"E:\fine", vec![FilterRule::regex(r"\.jpg$")]),
+    ]);
+
+    let statuses = run(&engine(&fs), &task);
+
+    assert_eq!(SyncOutcome::Failed, statuses[0].outcome);
+    assert!(statuses[0]
+        .error
+        .as_ref()
+        .unwrap()
+        .contains("'(jpg' is not a valid regular expression"));
+    assert!(
+        !fs.file_exists(Path::new(r"D:\broken\a.jpg")),
+        "a negated broken rule would otherwise select everything"
+    );
+    assert_eq!(SyncOutcome::Success, statuses[1].outcome);
+    assert!(fs.file_exists(Path::new(r"E:\fine\a.jpg")));
+}
+
+#[test]
+fn a_move_task_with_a_regex_that_does_not_compile_moves_nothing_at_all() {
+    let fs = memory();
+    fs.add_file(r"C:\src\IMG_0001.jpg", b"a");
+    let task = move_task(vec![
+        moving(
+            "Camera",
+            r"D:\camera",
+            vec![FilterRule::regex(r"^IMG_\d+(\.jpg")],
+        ),
+        moving("Images", r"D:\images", vec![FilterRule::extension("jpg")]),
+    ]);
+
+    let statuses = run(&engine(&fs), &task);
+
+    assert!(statuses
+        .iter()
+        .all(|status| status.outcome == SyncOutcome::Failed));
+    assert!(
+        !fs.file_exists(Path::new(r"D:\images\IMG_0001.jpg")),
+        "the file the broken rule was written for must not fall through to the next rule"
+    );
+    assert!(fs.file_exists(Path::new(r"C:\src\IMG_0001.jpg")));
+}
+
+#[test]
 fn a_mirror_destination_carrying_file_filters_is_refused() {
     let fs = memory();
     fs.add_file(r"C:\src\a.jpg", b"a");

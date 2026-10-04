@@ -46,6 +46,8 @@ pub struct DestinationEditor {
     /// One "new rule" field per group.
     group_inputs: Vec<Entity<InputState>>,
     group_kinds: Vec<FilterKind>,
+    /// Why the pattern in a group's field was not added, until the next attempt or kind change.
+    group_errors: Vec<Option<String>>,
 
     strategy: SyncStrategy,
     verify_contents: bool,
@@ -109,6 +111,7 @@ impl DestinationEditor {
                 })
                 .collect(),
             group_kinds: vec![FilterKind::default(); groups],
+            group_errors: vec![None; groups],
             strategy: destination.strategy,
             verify_contents: destination.verify_contents,
             delete_mode: destination.delete_mode,
@@ -221,6 +224,17 @@ impl DestinationEditor {
             return Some(strings::dest_editor_needs_filter_rule().into());
         }
 
+        // A pattern that does not compile matches nothing — and selects everything under an
+        // exclude — so it is never saved. Only hand-edited config can still bring one in.
+        if self.shows_filters() {
+            if let Some(error) = self.filters.filter_error() {
+                return Some(strings::dest_editor_invalid_regex_format(
+                    error.pattern(),
+                    error.reason(),
+                ));
+            }
+        }
+
         None
     }
 
@@ -317,12 +331,23 @@ impl DestinationEditor {
             return;
         }
 
+        // A broken regex stays in the field, with the reason under it, rather than becoming a
+        // rule that blocks the save from further down.
+        let entry = FilterEntry::new(self.group_kinds[group], pattern);
+        if let Some(error) = entry.filter_error() {
+            self.group_errors[group] = Some(strings::dest_editor_invalid_regex_format(
+                error.pattern(),
+                error.reason(),
+            ));
+            cx.notify();
+            return;
+        }
+        self.group_errors[group] = None;
+
         while self.filters.groups.len() <= group {
             self.filters.groups.push(FilterGroup::default());
         }
-        self.filters.groups[group]
-            .rules
-            .push(FilterEntry::new(self.group_kinds[group], pattern));
+        self.filters.groups[group].rules.push(entry);
         self.filters.all_files = false;
 
         input.update(cx, |state, cx| state.set_value("", window, cx));
@@ -332,6 +357,7 @@ impl DestinationEditor {
     fn add_group(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.filters.groups.push(FilterGroup::default());
         self.group_kinds.push(FilterKind::default());
+        self.group_errors.push(None);
         self.group_inputs.push(cx.new(|cx| {
             InputState::new(window, cx).placeholder(strings::dest_editor_pattern_placeholder())
         }));
@@ -344,6 +370,7 @@ impl DestinationEditor {
         }
         self.filters.groups.remove(group);
         self.group_kinds.remove(group);
+        self.group_errors.remove(group);
         self.group_inputs.remove(group);
         cx.notify();
     }
@@ -355,6 +382,7 @@ fn describe_rule(rule: &FilterEntry) -> String {
         FilterKind::Path => strings::filter_path_row_format(&rule.pattern),
         FilterKind::Extension => strings::filter_extension_row_format(&rule.pattern),
         FilterKind::Wildcard => strings::filter_wildcard_row_format(&rule.pattern),
+        FilterKind::Regex => strings::filter_regex_row_format(&rule.pattern),
     };
     if rule.excluded {
         strings::filter_exclude_row_format(body)
@@ -735,10 +763,18 @@ impl DestinationEditor {
                                     .label(strings::enum_filter_kind_wildcard())
                                     .selected(kind == FilterKind::Wildcard),
                             )
+                            .child(
+                                Button::new("regex")
+                                    .label(strings::enum_filter_kind_regex())
+                                    .selected(kind == FilterKind::Regex),
+                            )
                             .on_click(cx.listener(move |editor, clicked: &Vec<usize>, _, cx| {
                                 if let Some(choice) = clicked.first() {
                                     if let Some(slot) = editor.group_kinds.get_mut(index) {
                                         *slot = FilterKind::from_index(*choice);
+                                    }
+                                    if let Some(error) = editor.group_errors.get_mut(index) {
+                                        *error = None;
                                     }
                                     cx.notify();
                                 }
@@ -770,6 +806,25 @@ impl DestinationEditor {
                     .with_size(Size::Small),
                 )
             })
+            .when(kind == FilterKind::Regex, |element| {
+                element.child(
+                    Alert::new(
+                        SharedString::from(format!("regex-hint-{index}")),
+                        strings::dest_editor_regex_hint(),
+                    )
+                    .icon(Glyph::Asterisk)
+                    .with_size(Size::Small),
+                )
+            })
+            .when_some(
+                self.group_errors.get(index).cloned().flatten(),
+                |element, error| {
+                    element.child(
+                        Alert::error(SharedString::from(format!("rule-error-{index}")), error)
+                            .with_size(Size::Small),
+                    )
+                },
+            )
     }
 
     fn render_rule(

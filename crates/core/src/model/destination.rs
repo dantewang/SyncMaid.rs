@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::filtering::FilterRule;
+use crate::filtering::{FilterError, FilterRule};
 use crate::model::{DeleteMode, DestinationLocation, FileNameCollisionPolicy, SyncStrategy};
 
 /// Fraction of the destination a single Mirror run may delete before it is treated as a
@@ -111,6 +111,11 @@ impl Destination {
     /// predictable now that exclude-style rules exist. With no rules, nothing is selected.
     pub fn includes(&self, relative_path: &str) -> bool {
         self.filters.iter().any(|rule| rule.matches(relative_path))
+    }
+
+    /// The first filter rule that cannot mean what it says — see [`FilterRule::first_error`].
+    pub fn filter_error(&self) -> Option<FilterError> {
+        self.filters.iter().find_map(FilterRule::first_error)
     }
 
     /// True when this destination carries exactly the lone all-files filter a Mirror

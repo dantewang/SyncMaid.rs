@@ -12,6 +12,8 @@ anyhow.workspace = true
 chrono.workspace = true
 croner = "3.0.1"
 notify = "8.2.0"
+# Already linked into the app by GPUI, so a regex filter costs the executable ~4 KB.
+regex = "1.13"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

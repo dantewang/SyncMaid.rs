@@ -12,6 +12,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use uuid::Uuid;
 
+use crate::filtering::FilterError;
 use crate::io::{self, FileSystem, ListedDirectory, ListedFile};
 use crate::model::{
     DeleteMode, Destination, DestinationSyncStatus, SyncOutcome, SyncStrategy, SyncTask,
@@ -124,6 +125,15 @@ impl SyncEngine {
                 first.name, second.name
             );
             return Ok(refuse_run(task, &reason));
+        }
+
+        // A Move task's rules are read as one ordered list, so a rule that cannot be read
+        // spoils the whole list: the files it was written for would fall through to the next
+        // rule and move somewhere the user never asked for.
+        if task.kind() == SyncTaskKind::Move {
+            if let Some(error) = task.destinations.iter().find_map(Destination::filter_error) {
+                return Ok(refuse_run(task, &filter_refusal(&error)));
+            }
         }
 
         // One walk of the source serves every destination: files, stamps and directories
@@ -297,6 +307,12 @@ impl SyncEngine {
                  filters; no files were changed."
                     .into(),
             ));
+        }
+
+        // A rule that does not compile matches nothing, and under a `Not` that selects
+        // everything. The editor will not save one; hand-edited config is refused here.
+        if let Some(error) = destination.filter_error() {
+            return Err(RunError::Refused(filter_refusal(&error)));
         }
 
         if let Some(error) = source_error {
@@ -541,6 +557,10 @@ fn refuse_run(task: &SyncTask, reason: &str) -> Vec<DestinationSyncStatus> {
         .iter()
         .map(|destination| failed(destination.id, reason))
         .collect()
+}
+
+fn filter_refusal(error: &FilterError) -> String {
+    format!("Filter {error}; no files were changed.")
 }
 
 fn failed(destination_id: Uuid, reason: &str) -> DestinationSyncStatus {

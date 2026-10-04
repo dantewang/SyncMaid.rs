@@ -21,6 +21,8 @@ Each rule is one of:
 - **Extension** — files of a type. `jpg` matches every `.jpg` anywhere under the source.
 - **Wildcard** — a pattern matched against the file's path relative to the source. This is
   the one that can look at a file's *name*.
+- **Regex** — a regular expression searched for in the file's path relative to the source,
+  for the names a wildcard cannot describe.
 
 Type the value into the box next to the rule (the placeholder shows the shape:
 `e.g. photos/2024, jpg, or **/ChatGPT*.png`).
@@ -44,6 +46,28 @@ Type the value into the box next to the rule (the placeholder shows the shape:
 Patterns are case-insensitive, and `\` works the same as `/`. A leading `**/` is what makes
 a pattern apply at any depth: `ChatGPT*.png` on its own only matches files sitting directly
 in the source folder.
+
+### Regex patterns
+
+A regex rule matches when the pattern is found **anywhere** in the file's path relative to the
+source, with `/` between folders. Anchor it with `^` (start of the path) and `$` (end) to pin it
+down.
+
+| Pattern | Matches |
+|---|---|
+| `IMG_\d{4}` | `IMG_0042.jpg`, `trip/IMG_1234 copy.png` — anywhere in the path |
+| `^photos/[^/]+\.jpe?g$` | `.jpg` and `.jpeg` directly in `photos\`, but **not** in its subfolders |
+| `(^\|/)20\d\d-\d\d-\d\d/` | anything under a folder named like a date, e.g. `2026-08-09` |
+| `\.(raw\|dng\|cr3)$` | three raw formats in one rule |
+| `(?-i)^Final/` | everything under `Final\` at the source root, but not under `final\` |
+
+Matching is case-insensitive unless the pattern starts with `(?-i)`. Write `/` between folders,
+not `\` — in a regex, `\` starts an escape like `\d` or `\.`.
+
+The syntax is that of Rust's [`regex`](https://docs.rs/regex/latest/regex/#syntax) crate. It has
+no look-ahead, look-behind or back-references; use an **all rules** group with an excluded rule
+instead of a look-ahead. A pattern that is not valid stays in the box with the reason under it,
+and is never saved.
 
 ## Groups: any, all, and exclude
 
@@ -70,6 +94,7 @@ That's enough to express the combinations people actually want:
 | `.jpg` or `.png`, but only under `photos/` | **Match all groups** — group 1 (any rule): Extension `jpg`, Extension `png`; group 2: Path `photos` |
 | Everything except `.tmp` files | One group: **All files**, plus a rule Extension `tmp` with **exclude** on |
 | The PNGs whose name starts with ChatGPT | One group: Wildcard `**/ChatGPT*.png` |
+| Camera files named `IMG_` plus digits, but no `.tmp` | One group, **all rules**: Regex `(^\|/)IMG_\d+[^/]*$`, Extension `tmp` with **exclude** on |
 
 ## The preview line
 

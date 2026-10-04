@@ -23,9 +23,9 @@ impl FileSystem for PhysicalFileSystem {
     /// Walks the tree in one pass, reading each entry's length and modified time from the
     /// directory scan itself rather than re-opening every file.
     ///
-    /// Known limitation carried over from the C# engine: the walk follows reparse points, so a
-    /// directory junction that points at an ancestor makes it recurse forever. Guarding that
-    /// is tracked separately; changing it here silently would change which trees sync.
+    /// Known limitation: the walk follows reparse points, so a directory junction that points
+    /// at an ancestor makes it recurse forever. Guarding that is tracked separately; changing
+    /// it here silently would change which trees sync.
     fn list_tree(&self, root: &Path) -> io::Result<TreeListing> {
         let mut listing = TreeListing::default();
         let mut pending = vec![(root.to_path_buf(), String::new())];
@@ -278,8 +278,8 @@ fn available_free_space(path: &Path) -> u64 {
     use std::path::Component;
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
-    // A share reports its own free space unreliably (quotas, DFS), which is why the C# engine
-    // skipped the preflight there rather than refusing a copy on a bad number.
+    // A share reports its own free space unreliably (quotas, DFS), so the preflight is skipped
+    // there rather than refusing a copy on a bad number.
     if crate::io::is_network(path) {
         return u64::MAX;
     }

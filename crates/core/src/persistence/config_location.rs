@@ -3,11 +3,10 @@
 //! **Portable, always**: a `Data` folder beside the executable, so the whole app is a folder
 //! you can copy to a USB stick and it leaves nothing on the machine.
 //!
-//! The C# build offered a second location under `%APPDATA%` and a marker file to choose
-//! between them, which brought a chicken-and-egg problem — the setting that picks the config
-//! folder cannot live inside it — and a three-phase copy-verify-remove migration. Fixing the
-//! location removes both. The one rule that outlives them: never put a "where is my config"
-//! field inside the config.
+//! A second location under `%APPDATA%` would need a marker file to choose between them, which
+//! brings a chicken-and-egg problem — the setting that picks the config folder cannot live
+//! inside it — and a copy-verify-remove migration between the two. One fixed location avoids
+//! both. The rule that follows: never put a "where is my config" field inside the config.
 
 use std::path::{Path, PathBuf};
 

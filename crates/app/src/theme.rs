@@ -75,7 +75,7 @@ fn hex(value: u32) -> Hsla {
 }
 
 impl Theme {
-    /// The one theme SyncMaid wears. Light only, as the Avalonia build was.
+    /// The one theme SyncMaid wears. Light only.
     pub fn porcelain() -> Self {
         Self {
             background: hex(0xF8FAFB),

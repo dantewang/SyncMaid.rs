@@ -4,8 +4,6 @@
 
 # SyncMaid
 
-**This repo is a boring re-write of https://github.com/dantewang/SyncMaid in Rust + GPUI**
-
 **One-way file sync for Windows, done for you.**
 
 SyncMaid watches a source folder and keeps one or more destinations in sync with it — each
@@ -15,24 +13,13 @@ you don't.
 
 </div>
 
-This is the Rust port of [SyncMaid](https://github.com/dantewang/SyncMaid), rebuilt on
-[GPUI](https://www.gpui.rs/) with the same features, the same safety rules and the same window.
-Two differences are deliberate:
-
-- **Portable only.** Everything SyncMaid saves lives in a `Data` folder beside the executable,
-  so the whole app is a folder you can copy to a USB stick and the machine keeps nothing. The
-  C# build could also store its config in `%APPDATA%`; this one does not offer the choice.
-- **No acrylic window background.** SyncMaid wears `gpui-component`'s Ayu Light theme, flat
-  throughout, with the system title bar rather than a drawn one.
-
-Config is **byte-compatible** with the C# build, so the two can share a `Data` folder: point
-this one at an existing `tasks.json` and it loads, saves and reads back identically.
+SyncMaid is written in Rust on [GPUI](https://www.gpui.rs/), and it is **portable only**:
+everything it saves lives in a `Data` folder beside the executable, so the whole app is a folder
+you can copy to a USB stick and the machine keeps nothing.
 
 ## Documentation
 
 - **Using SyncMaid** — the guides in [`docs/`](docs).
-- **Design records and rationale** — the [wiki](https://github.com/dantewang/SyncMaid/wiki) of
-  the original, which this port follows.
 - **Contributing / working with agents** — [AGENT.md](AGENT.md) holds the standing rules.
 
 ## Requirements

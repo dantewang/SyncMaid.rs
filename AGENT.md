@@ -2,10 +2,8 @@
 
 Guidance for AI agents working in this repository.
 
-This is the Rust port of [SyncMaid](https://github.com/dantewang/SyncMaid) (C# / Avalonia). The
-product rules below are carried over unchanged and are the reason the port exists in the shape
-it does — they are **product decisions, not implementation details**. Enforce them; do not
-engineer around them.
+The product rules below are the reason the code has the shape it does — they are **product
+decisions, not implementation details**. Enforce them; do not engineer around them.
 
 ## Layout
 
@@ -129,10 +127,6 @@ add a faster path that skips them.
 
 ## Persistence
 
-- **Byte-compatible with the C# build.** `tasks.json`, `status.json` and `settings.json` are
-  read and written in exactly the shape `System.Text.Json` produced, CRLF included, so the two
-  builds can share a `Data` folder. `examples/compat_check.rs` checks a real config round-trips
-  byte-identically.
 - **Config writes go through `persistence::atomic_file` / `json_config`** — temp → rename,
   previous version kept as `.bak` and loaded as a fallback. Never write over `tasks.json` in
   place.
@@ -167,8 +161,8 @@ add a faster path that skips them.
 - **Test one behaviour once, at the highest level that can see it**, not once per layer it
   passes through.
 - **Don't restate the code.** No asserting a constant, a path join, `env!`, a derived trait or
-  a lookup table echoed back. The exception is persisted shapes shared with the C# build: pin
-  those, because the other side of that contract is not in this repo.
+  a lookup table echoed back. The exception is persisted shapes: pin those, because the other
+  side of that contract is config already on users' disks, which is not in this repo.
 - **Test our decisions, not our dependencies.** A wrapper's tests cover what the wrapper
   chooses (trimming, the strictly-after flag), not what croner or serde already guarantee.
 - **Every test needs an assertion that can fail.** Calling something and asserting nothing, or

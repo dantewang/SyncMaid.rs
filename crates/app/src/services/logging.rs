@@ -1,15 +1,14 @@
 //! The activity and error log.
 //!
 //! One file beside the config, rolled at ~5 MB with a single previous copy kept. It is the run
-//! history the UI does not show — the destination rows only display the latest result — so its
-//! shape follows the C# build's, and a log holding lines from both builds reads as one file.
+//! history the UI does not show — the destination rows only display the latest result.
 //!
-//! One deliberate divergence: a run line names its task's id as well as its name. The names
-//! alone do not identify a destination, and the window that reads these lines back has to be
-//! able to. Lines without it still read, and are still found — see [`DestinationTag`].
+//! A run line names its task's id as well as its name. The names alone do not identify a
+//! destination, and the window that reads these lines back has to be able to. Lines without it
+//! still read, and are still found — see [`DestinationTag`].
 //!
-//! Logging never throws into the app. An I/O failure here is swallowed, which is the one
-//! sanctioned exception to "never swallow an exception": there is nowhere better to report it,
+//! Logging never fails into the app. An I/O failure here is swallowed, which is the one
+//! sanctioned exception to "never swallow an error": there is nowhere better to report it,
 //! and a full disk must not take the app down with it.
 //!
 //! The log is read back as well as written: a destination's status text opens a window onto its
@@ -39,8 +38,7 @@ const MAX_BYTES: u64 = 5 * 1024 * 1024;
 /// task, and two tasks may share a name. The id is, so the pair always is.
 ///
 /// The name-only spelling is still matched. It is every line written before the id was in them,
-/// and every line the C# build writes, and dropping it would blank this window on upgrade day
-/// for history that is still on disk and still the reason the row says "Failed". It carries the
+/// and dropping it would blank this window on upgrade day for history that is still on disk and still the reason the row says "Failed". It carries the
 /// ambiguity the id was added to fix — but only for lines already written, which is the half of
 /// the problem that cannot be fixed anyway.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,7 +178,7 @@ where
             "{} [{}] {}: ",
             chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
             abbreviate(*metadata.level()),
-            // The last segment only, the way the C# logger shortens its category.
+            // The last segment only: the module, not its whole path.
             metadata
                 .target()
                 .rsplit("::")
@@ -362,7 +360,7 @@ mod tests {
         assert_eq!(Some(theirs.line_prefix()), theirs.matched_in(&line));
     }
 
-    /// Lines written before the id existed — and every line the C# build writes — still read.
+    /// Lines written before the id existed still read.
     /// Losing them would blank this window on upgrade day for history that still explains why
     /// the row says "Failed".
     #[test]
@@ -486,7 +484,7 @@ mod tests {
     }
 
     #[test]
-    fn levels_abbreviate_the_way_the_csharp_logger_does() {
+    fn levels_abbreviate_to_the_tags_the_log_viewer_reads() {
         assert_eq!("INF", abbreviate(Level::INFO));
         assert_eq!("WRN", abbreviate(Level::WARN));
         assert_eq!("ERR", abbreviate(Level::ERROR));

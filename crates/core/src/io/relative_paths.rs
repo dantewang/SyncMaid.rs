@@ -55,7 +55,7 @@ fn try_normalize_full_path(path: &Path) -> Option<String> {
     }
 
     // A half-typed UNC prefix (`\\`, `\\server`) names no location until it has both a server
-    // and a share — .NET's GetFullPath rejects it outright, and so do we.
+    // and a share, so it is rejected outright rather than resolved against something.
     if is_incomplete_unc(path) {
         return None;
     }

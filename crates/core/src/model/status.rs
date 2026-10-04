@@ -97,7 +97,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn outcomes_persist_as_their_csharp_names() {
+    fn outcomes_persist_as_their_variant_names() {
         assert_eq!(
             r#""NeedsConfirmation""#,
             serde_json::to_string(&SyncOutcome::NeedsConfirmation).unwrap()

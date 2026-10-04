@@ -26,7 +26,5 @@ have a working task.
 
 ## Elsewhere
 
-Design records and the reasoning behind SyncMaid's behaviour live in the
-[wiki](https://github.com/dantewang/SyncMaid/wiki) of the original C# build, which this Rust
-port follows. Rules for working on the code are in [AGENT.md](../AGENT.md).
+Rules for working on the code are in [AGENT.md](../AGENT.md).
 

@@ -21,7 +21,7 @@ use syncmaid::{assets, platform, services, strings, theme};
 use syncmaid_core::io::{FileSystem, PhysicalFileSystem};
 use syncmaid_core::persistence::ConfigLocation;
 
-/// The Avalonia build's window geometry, kept so the port lands in the same place.
+/// The window's opening size.
 const WINDOW_SIZE: (f32, f32) = (940., 620.);
 const WINDOW_MIN_SIZE: (f32, f32) = (640., 480.);
 

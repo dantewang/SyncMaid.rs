@@ -1,7 +1,6 @@
 //! The persisted domain model.
 //!
-//! Every type here round-trips through the exact JSON shape the C# app writes: PascalCase
-//! property names, a lowercase `"kind"` discriminator on the closed hierarchies, enums as
+//! Every type here round-trips through one fixed JSON shape: PascalCase property names, a lowercase `"kind"` discriminator on the closed hierarchies, enums as
 //! strings, and nulls omitted on write. Old config keeps loading; legacy shapes are
 //! normalized on save rather than rejected.
 
@@ -96,7 +95,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn enums_persist_as_their_csharp_names() {
+    fn enums_persist_as_their_variant_names() {
         assert_eq!(
             r#""AddOnly""#,
             serde_json::to_string(&SyncStrategy::AddOnly).unwrap()

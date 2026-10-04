@@ -1,6 +1,6 @@
 name: CI
 
-# The gate the original repository never had. Everything here is what a local
+# Everything here is what a local
 # `cargo fmt --check && cargo clippy -- -D warnings && cargo test` would tell you, run where
 # nobody can forget to run it.
 on:

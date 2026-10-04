@@ -11,8 +11,7 @@ pub const DEFAULT_MASS_DELETE_THRESHOLD: f64 = 0.5;
 /// A sync target: where filtered source files go, which files are selected, and how the
 /// destination is reconciled.
 ///
-/// Field order matches the C# declaration order so the persisted JSON is key-for-key
-/// identical.
+/// Field order is the persisted key order; reordering fields reorders every saved file.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Destination {
@@ -168,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn a_destination_persists_in_the_csharp_key_order_with_every_knob() {
+    fn a_destination_persists_in_its_fixed_key_order_with_every_knob() {
         let destination = Destination {
             id: Uuid::nil(),
             ..sample()
@@ -210,8 +209,7 @@ mod tests {
 
     #[test]
     fn a_destination_missing_a_required_member_is_corrupt_rather_than_defaulted() {
-        // `Filters` and `Strategy` are positional record parameters in C# with
-        // RespectRequiredConstructorParameters on — absent means the file is corrupt, which is
+        // `Filters` and `Strategy` are required: absent means the file is corrupt, which is
         // what makes the .bak fallback fire instead of silently syncing nothing.
         let json = r#"{"Name":"D","Target":{"kind":"local","Path":"D:\\d"}}"#;
         assert!(serde_json::from_str::<Destination>(json).is_err());

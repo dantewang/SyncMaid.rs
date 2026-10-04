@@ -7,10 +7,10 @@
 //! Once the burst settles the source is **walked and compared** before anything fires. Windows
 //! reports more than a change of content: reading the files under a directory is enough to make
 //! it report that directory as modified, so a Mirror run — which only ever reads its source —
-//! would otherwise wake its own watcher and run again, every time, forever. The C# build
-//! avoided that by narrowing `FileSystemWatcher.NotifyFilter`; `notify` fixes its Windows
-//! filter, so the check moves here, where it also covers every other spurious wake-up. It costs
-//! one tree walk per settled burst, which is a walk the run that follows would make anyway.
+//! would otherwise wake its own watcher and run again, every time, forever. `notify` fixes its
+//! Windows filter, so the check lives here, where it also covers every other spurious wake-up.
+//! It costs one tree walk per settled burst, which is a walk the run that follows would make
+//! anyway.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};

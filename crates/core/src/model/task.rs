@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn a_task_persists_in_the_csharp_key_order() {
+    fn a_task_persists_in_its_fixed_key_order() {
         let task = SyncTask {
             id: Uuid::nil(),
             ..SyncTask::new("Sort", r"C:\src", Trigger::Manual, [])

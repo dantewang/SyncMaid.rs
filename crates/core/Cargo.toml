@@ -17,7 +17,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
-# XXH3-128, the same algorithm System.IO.Hashing.XxHash128 implements.
+# XXH3-128, which safe_transfer verifies copies with.
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [target.'cfg(windows)'.dependencies]

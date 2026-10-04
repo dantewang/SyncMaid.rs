@@ -2,8 +2,8 @@
 //!
 //! Both source and destination are Windows filesystems, so every path comparison in the
 //! engine ignores case. ASCII is the overwhelmingly common case and gets a fast path;
-//! anything else falls back to a full-Unicode uppercase fold, which is what .NET's
-//! `OrdinalIgnoreCase` amounts to for the inputs we see.
+//! anything else falls back to a full-Unicode uppercase fold, which is close to how Windows
+//! filesystems compare names for the inputs we see.
 
 /// Case-insensitive char equality.
 pub(crate) fn chars_equal_ignore_case(a: char, b: char) -> bool {

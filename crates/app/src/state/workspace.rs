@@ -38,7 +38,7 @@ impl Workspace {
         let statuses = status_store.load();
         let settings = settings_store.load();
 
-        // Every task starts expanded, the way the Avalonia card did.
+        // Every task starts expanded.
         let expanded = tasks.iter().map(|task| task.id).collect();
 
         Self {

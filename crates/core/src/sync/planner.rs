@@ -101,8 +101,8 @@ fn plan_mirror(
     source_directories: &[ListedDirectory],
     snapshot: &DestinationSnapshot,
 ) -> Vec<SyncOperation> {
-    // Sorted by folded key, so iteration is the ordinal-ignore-case order the C# planner used
-    // and parents always come before their children.
+    // Sorted by folded key, so iteration is in ordinal-ignore-case order and parents always
+    // come before their children.
     let mut source_directory_times: BTreeMap<String, (String, DateTime<Utc>)> = BTreeMap::new();
     for directory in source_directories {
         source_directory_times.insert(

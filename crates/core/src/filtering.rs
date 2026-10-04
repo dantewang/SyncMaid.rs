@@ -660,7 +660,7 @@ mod tests {
         let rule: FilterRule =
             serde_json::from_str(r#"{"kind":"path","Prefix":"\\Photos\\2024\\"}"#).unwrap();
         // Separators are folded and the ends trimmed, but the user's casing is preserved —
-        // only *matching* ignores case, exactly as the C# record does.
+        // only *matching* ignores case.
         assert_eq!("Photos/2024", rule_prefix(&rule));
         assert!(rule.matches("photos/2024/a.jpg"));
 

@@ -43,11 +43,10 @@ pub fn save<T: Serialize>(
     atomic_file::write(file_system, path, to_config_json(value)?.as_bytes())
 }
 
-/// The exact bytes the C# app writes: two-space indentation and CRLF line endings, which is
-/// what `System.Text.Json` produces with `WriteIndented` on Windows.
+/// Config bytes: two-space indentation and CRLF line endings, the shape every config file
+/// SyncMaid has written has, so a save never shows up as a whole-file diff.
 ///
-/// Matching it means a user can move between the two builds without every save showing up as
-/// a whole-file diff. Replacing the separators wholesale is safe because JSON escapes a
+/// Replacing the separators wholesale is safe because JSON escapes a
 /// newline inside a string as the two characters `\` and `n`, so a raw newline in the output
 /// is always formatting.
 pub fn to_config_json<T: Serialize>(value: &T) -> std::io::Result<String> {
@@ -116,12 +115,12 @@ mod tests {
     }
 
     #[test]
-    fn config_is_written_with_the_line_endings_the_csharp_writer_uses() {
+    fn config_is_written_with_crlf_line_endings() {
         let json = to_config_json(&settings()).unwrap();
 
         assert!(
             json.contains("\r\n"),
-            "System.Text.Json writes CRLF on Windows: {json:?}"
+            "config is written with CRLF: {json:?}"
         );
         assert!(
             !json.contains("\n\n"),

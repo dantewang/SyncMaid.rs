@@ -1,8 +1,7 @@
 //! One running copy per installed copy.
 //!
 //! Two SyncMaids over the same `Data` folder would fight: both write `tasks.json`, both start
-//! the same watchers, and both plan the same run. The original had no guard at all — this is a
-//! known gap being closed rather than a behaviour being ported.
+//! the same watchers, and both plan the same run.
 //!
 //! **The identity is the folder the executable lives in, not the user.** SyncMaid is portable,
 //! so a copy on a USB stick and a copy on `C:` are two different installs with two different

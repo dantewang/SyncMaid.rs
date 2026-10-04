@@ -90,11 +90,17 @@ jobs:
           $assets = @($zip, "$zip.sha256")
 
           # Create the release on the first run for this tag; otherwise attach to the one the
-          # release event already made.
+          # release event already made. A checked-in note for the tag — what users must know
+          # before upgrading or downgrading — goes above the generated commit list.
           gh release view $tag 2>$null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $assets --clobber
           } else {
-            gh release create $tag $assets --title $tag --generate-notes
+            $notes = "release-notes/$tag.md"
+            if (Test-Path $notes) {
+              gh release create $tag $assets --title $tag --generate-notes --notes-file $notes
+            } else {
+              gh release create $tag $assets --title $tag --generate-notes
+            }
           }
 

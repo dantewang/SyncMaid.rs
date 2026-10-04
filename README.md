@@ -91,6 +91,10 @@ The tag runs the release workflow, which refuses to build unless the tag and the
 agree, then packages exactly the executable above, publishes a SHA-256 sidecar beside it, and
 attests the build's provenance.
 
+The release text is GitHub's generated list of changes. Anything a user must know before
+upgrading or downgrading goes in `release-notes/v1.2.3.md`, committed before the tag; the
+workflow puts it above the generated list.
+
 `cargo install cargo-release` collapses that block into `cargo release 1.2.3` if the manual
 steps start to grate.
 

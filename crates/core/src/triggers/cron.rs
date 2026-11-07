@@ -4,9 +4,8 @@
 //! cron does, so `0 2 * * 1` means "02:00 every Monday" as the user reads it off their own
 //! clock, DST included.
 
-use std::str::FromStr;
-
 use chrono::{DateTime, Local};
+use croner::parser::CronParser;
 use croner::Cron;
 
 /// A parsed five-field cron expression.
@@ -23,7 +22,13 @@ impl CronSchedule {
         if trimmed.is_empty() {
             return Err(CronParseError("a cron expression cannot be blank".into()));
         }
-        let cron = Cron::from_str(trimmed).map_err(|error| CronParseError(error.to_string()))?;
+        // Sloppy ranges keep the `5/15` shorthand croner 3 accepted, so a schedule already saved
+        // in someone's config does not stop parsing on upgrade.
+        let cron = CronParser::builder()
+            .sloppy_ranges(true)
+            .build()
+            .parse(trimmed)
+            .map_err(|error| CronParseError(error.to_string()))?;
         Ok(Self {
             cron,
             expression: trimmed.to_owned(),
@@ -93,6 +98,19 @@ mod tests {
                 "{expression:?} should not parse"
             );
         }
+    }
+
+    #[test]
+    fn a_step_from_a_bare_start_still_parses() {
+        // Config already on disk may hold the shorthand earlier versions accepted; it has to
+        // keep loading, and keep meaning "from minute 5, every 15".
+        let schedule = CronSchedule::parse("5/15 * * * *").unwrap();
+
+        let next = schedule
+            .next_occurrence_after(local(2026, 8, 9, 2, 6))
+            .unwrap();
+
+        assert_eq!(20, next.minute());
     }
 
     #[test]

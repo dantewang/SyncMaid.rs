@@ -39,7 +39,7 @@ uuid.workspace = true
 [target.'cfg(windows)'.dependencies]
 # The tray lives on its own thread with its own win32 message pump; ShowWindow is what keeps
 # a hidden window (and therefore gpui's message loop) alive instead of destroying it.
-tray-icon = "0.24"
+tray-icon = { version = "0.26", default-features = false }
 windows-registry = "0.6.1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

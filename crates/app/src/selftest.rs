@@ -45,6 +45,7 @@ pub fn run_tray_gate(window: WindowHandle<Root>, cx: &mut App) {
             .expect("provoke a display change");
         assert!(provoked, "could not reach the native window handle");
 
+        executor.timer(Duration::from_millis(200)).await;
         let visible = window
             .update(cx, |_, window, _| window_visibility::is_visible(window))
             .expect("read window visibility");

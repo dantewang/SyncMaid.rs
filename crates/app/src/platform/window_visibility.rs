@@ -50,8 +50,8 @@ pub fn keep_hidden_across_display_changes(window: &Window, hidden: bool) -> bool
 /// A real disconnect is gpui un-hiding the window from *inside* its `WM_DISPLAYCHANGE`
 /// handler, and short of unplugging a monitor we cannot make it take that branch — as far as
 /// it can tell, every display is still there. So the gate un-hides the window itself and then
-/// delivers the message, which exercises the half that is ours: that the guard notices and
-/// puts the window back.
+/// posts the message, which exercises the half that is ours: that the guard notices and puts
+/// the window back. The message is only queued; yield to the loop before checking.
 pub fn simulate_display_disconnect(window: &Window) -> bool {
     platform::simulate_display_disconnect(window)
 }
@@ -69,7 +69,7 @@ mod platform {
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        IsWindowVisible, SendMessageW, SetForegroundWindow, ShowWindow, SW_HIDE, SW_SHOW,
+        IsWindowVisible, PostMessageW, SetForegroundWindow, ShowWindow, SW_HIDE, SW_SHOW,
         SW_SHOWNORMAL, WM_DISPLAYCHANGE, WM_NCDESTROY,
     };
 
@@ -121,13 +121,13 @@ mod platform {
         let Some(hwnd) = hwnd_of(window) else {
             return false;
         };
-        // SAFETY: as above. `SendMessageW` runs the window procedure inline, so by the time it
-        // returns the guard has already had its say.
+        // SAFETY: as above. The message is posted rather than sent: gpui's handler calls back
+        // into the app, which the caller is still borrowing, so it has to arrive through the
+        // message loop the way a real one does. The caller yields before looking.
         unsafe {
             ShowWindow(hwnd, SW_SHOWNORMAL);
-            SendMessageW(hwnd, WM_DISPLAYCHANGE, 0, 0);
+            PostMessageW(hwnd, WM_DISPLAYCHANGE, 0, 0) != 0
         }
-        true
     }
 
     /// Sits in front of gpui's window procedure, undoing the one thing it gets wrong about a

@@ -7,9 +7,7 @@
 //! `install` also projects the palette onto gpui-base's own theme, which is what base-owned
 //! parts — the scrollbar, an input's text and caret — paint from.
 
-use gpui_kit::base::{
-    ColorTokens, RadiusTokens, ScrollbarStyles, ScrollbarTheme, Theme as BaseTheme,
-};
+use gpui_kit::base::{ScrollbarStyles, ScrollbarTheme, Theme as BaseTheme};
 use gpui_kit::{px, rgb, rgba, App, Global, Hsla, Pixels, SharedString};
 
 /// Porcelain: flat, square, ink on a pale ground, with teal meaning "happening now".
@@ -147,34 +145,34 @@ pub fn install(cx: &mut App) {
     let theme = Theme::porcelain();
 
     let base = BaseTheme::global_mut(cx);
-    base.tokens.colors = ColorTokens {
-        background: theme.background,
-        foreground: theme.foreground,
-        surface: theme.background,
-        surface_foreground: theme.foreground,
-        primary: theme.primary,
-        primary_foreground: theme.primary_foreground,
-        secondary: theme.secondary,
-        secondary_foreground: theme.secondary_foreground,
-        muted: theme.muted,
-        muted_foreground: theme.muted_foreground,
-        accent: theme.accent,
-        accent_foreground: theme.foreground,
-        destructive: theme.danger,
-        destructive_foreground: theme.danger_foreground,
-        border: theme.border,
-        input: theme.input,
-        ring: theme.ring,
-        selection: theme.selection,
-    };
-    base.tokens.radius = RadiusTokens {
-        none: px(0.),
-        sm: theme.radius,
-        md: theme.radius,
-        lg: theme.radius_lg,
-        xl: theme.radius_lg,
-        full: theme.radius,
-    };
+    // The token structs are `#[non_exhaustive]`, so they are filled field by field. A token
+    // gpui-base adds later keeps its own default until it is mapped here.
+    let colors = &mut base.tokens.colors;
+    colors.background = theme.background;
+    colors.foreground = theme.foreground;
+    colors.surface = theme.background;
+    colors.surface_foreground = theme.foreground;
+    colors.primary = theme.primary;
+    colors.primary_foreground = theme.primary_foreground;
+    colors.secondary = theme.secondary;
+    colors.secondary_foreground = theme.secondary_foreground;
+    colors.muted = theme.muted;
+    colors.muted_foreground = theme.muted_foreground;
+    colors.accent = theme.accent;
+    colors.accent_foreground = theme.foreground;
+    colors.destructive = theme.danger;
+    colors.destructive_foreground = theme.danger_foreground;
+    colors.border = theme.border;
+    colors.input = theme.input;
+    colors.ring = theme.ring;
+    colors.selection = theme.selection;
+    let radius = &mut base.tokens.radius;
+    radius.none = px(0.);
+    radius.sm = theme.radius;
+    radius.md = theme.radius;
+    radius.lg = theme.radius_lg;
+    radius.xl = theme.radius_lg;
+    radius.full = theme.radius;
     base.tokens.typography.sans = theme.font_family.clone();
     base.tokens.typography.mono = theme.mono_font_family.clone();
     base.scrollbar = ScrollbarTheme::new().with_styles(

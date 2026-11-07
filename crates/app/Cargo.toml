@@ -27,7 +27,7 @@ tracing.workspace = true
 # GPUI and gpui-base, and nothing styled: the components the app draws are its own, in
 # `src/ui`. No features — `component` would bring gpui-component back, `assets` its icon bundle,
 # and the rest are tree-sitter grammars.
-gpui-kit = { version = "0.6.1", default-features = false }
+gpui-kit = { version = "0.9.0", default-features = false }
 raw-window-handle = "0.6.2"
 flume = "0.12.0"
 # `include-exclude` for the `#[include]` filters in `assets.rs`.

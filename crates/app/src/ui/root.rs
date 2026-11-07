@@ -8,9 +8,12 @@ use gpui_kit::{
 use super::{Dialog, Sheet};
 use crate::theme::ActiveTheme as _;
 
-gpui_kit::actions!(root, [Tab, TabPrev]);
+// gpui-base registers `root::Tab`/`root::TabPrev` and binds them in a "Root" context for a root
+// of its own. Action names are process-global and a duplicate panics at startup, so ours carry
+// the app's name, and so does the key context, or base's bindings would win on our element.
+gpui_kit::actions!(syncmaid_root, [Tab, TabPrev]);
 
-const CONTEXT: &str = "Root";
+const CONTEXT: &str = "SyncMaidRoot";
 
 pub(super) fn init(cx: &mut App) {
     cx.bind_keys([

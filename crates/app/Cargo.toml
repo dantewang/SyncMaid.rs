@@ -30,8 +30,6 @@ tracing.workspace = true
 gpui-kit = { version = "0.9.0", default-features = false }
 raw-window-handle = "0.6.2"
 flume = "0.12.0"
-# `include-exclude` for the `#[include]` filters in `assets.rs`.
-rust-embed = { version = "8.12.0", features = ["include-exclude"] }
 # No default features: the log is a file with its own format, so `ansi` has nothing to colour,
 # and `tracing-log` only matters to `init()`, which `logging::install` does not call.
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "std"] }

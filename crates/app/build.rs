@@ -1,13 +1,16 @@
-//! Build-time work: the Windows resources and the string tables.
+//! Build-time work: the Windows resources, the string tables and the embedded icons.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
+#[path = "build/assets.rs"]
+mod assets;
 #[path = "build/strings.rs"]
 mod strings;
 
 fn main() {
     strings::generate();
+    assets::generate();
 
     #[cfg(windows)]
     {

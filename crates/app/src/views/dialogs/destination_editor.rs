@@ -420,7 +420,7 @@ impl DestinationEditor {
             .child(
                 field()
                     .label(strings::common_name_label())
-                    .child(Input::new(&self.name)),
+                    .child(Input::new(&self.name).debug_selector("destination-name")),
             )
             .child(self.render_folder(cx))
             .when(self.task_kind == SyncTaskKind::Sync, |element| {
@@ -451,7 +451,12 @@ impl DestinationEditor {
                 .child(
                     h_flex()
                         .gap(px(8.))
-                        .child(div().flex_1().min_w_0().child(Input::new(&self.path)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .child(Input::new(&self.path).debug_selector("destination-path")),
+                        )
                         .child(
                             Button::new("browse-destination")
                                 .label(strings::common_browse())
@@ -784,7 +789,9 @@ impl DestinationEditor {
                         div()
                             .flex_1()
                             .min_w_0()
-                            .children(self.group_inputs.get(index).map(Input::new)),
+                            .children(self.group_inputs.get(index).map(|input| {
+                                Input::new(input).debug_selector(format!("rule-input-{index}"))
+                            })),
                     )
                     .child(
                         Button::new(SharedString::from(format!("add-rule-{index}")))
@@ -964,7 +971,12 @@ impl DestinationEditor {
                                 .items_center()
                                 .gap(px(8.))
                                 .child(strings::dest_editor_ask_when_deleting_more_than())
-                                .child(div().w(px(80.)).child(Input::new(&self.threshold)))
+                                .child(
+                                    div().w(px(80.)).child(
+                                        Input::new(&self.threshold)
+                                            .debug_selector("mass-delete-threshold"),
+                                    ),
+                                )
                                 .child(strings::dest_editor_percent_of_destination()),
                         )
                     }),

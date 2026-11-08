@@ -275,6 +275,7 @@ impl LogViewer {
             .child(
                 div()
                     .id("log-lines")
+                    .debug_selector(|| "log-lines".to_owned())
                     .track_scroll(&self.scroll)
                     .flex()
                     .flex_col()

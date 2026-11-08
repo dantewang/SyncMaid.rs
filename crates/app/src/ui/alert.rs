@@ -91,7 +91,8 @@ impl RenderOnce for Alert {
         };
 
         h_flex()
-            .id(self.id)
+            .id(self.id.clone())
+            .debug_selector(move || self.id.to_string())
             .w_full()
             .items_start()
             .gap(gap)

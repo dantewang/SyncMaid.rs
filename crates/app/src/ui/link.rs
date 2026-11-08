@@ -57,7 +57,8 @@ impl RenderOnce for Link {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let link = cx.theme().link;
 
-        BaseLink::new(self.id)
+        BaseLink::new(self.id.clone())
+            .debug_selector(move || self.id.to_string())
             .text_color(link)
             .text_decoration_1()
             .text_decoration_color(link.opacity(0.5))

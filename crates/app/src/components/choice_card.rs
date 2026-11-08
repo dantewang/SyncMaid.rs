@@ -81,7 +81,8 @@ impl RenderOnce for ChoiceCard {
         };
 
         let mut element = div()
-            .id(self.id)
+            .id(self.id.clone())
+            .debug_selector(move || self.id.to_string())
             .flex()
             .flex_row()
             .items_start()

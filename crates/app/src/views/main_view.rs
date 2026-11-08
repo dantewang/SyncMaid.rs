@@ -1291,11 +1291,9 @@ impl MainView {
                                                     .get(&id)
                                                     .map(|next| next_run_badge(*next, cx)),
                                             )
-                                            .children(
-                                                self.trigger_errors
-                                                    .get(&id)
-                                                    .map(|reason| trigger_error_badge(reason, cx)),
-                                            ),
+                                            .children(self.trigger_errors.get(&id).map(|reason| {
+                                                trigger_error_badge(task.id, reason, cx)
+                                            })),
                                     )
                                     .child(path_text(&task.source_path, cx)),
                             ),
@@ -1706,11 +1704,12 @@ fn humanize(span: chrono::TimeDelta) -> String {
 /// The task will not run by itself. Amber rather than red: what is broken is the automation,
 /// not the task — Run now still works. The reason itself rides along as the tooltip, because a
 /// badge wide enough to hold an OS error message is not a badge.
-fn trigger_error_badge(reason: &str, cx: &App) -> impl IntoElement {
+fn trigger_error_badge(task_id: Uuid, reason: &str, cx: &App) -> impl IntoElement {
     let pip = cx.theme().warning_foreground;
     let reason = reason.to_owned();
     div()
-        .id("trigger-error")
+        .id(SharedString::from(format!("trigger-error-{task_id}")))
+        .debug_selector(move || format!("trigger-error-{task_id}"))
         .tooltip(move |window, cx| Tooltip::new(reason.clone()).build(window, cx))
         .child(
             // Filled, and the only badge on the row that is: everything else there is a fact,

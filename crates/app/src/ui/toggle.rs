@@ -63,7 +63,8 @@ impl RenderOnce for Checkbox {
         let checked = self.checked;
         let (primary, mark) = (theme.primary, theme.primary_foreground);
 
-        BaseCheckbox::new(self.id)
+        BaseCheckbox::new(self.id.clone())
+            .debug_selector(move || self.id.to_string())
             .track_focus(&focus)
             .checked(checked)
             .when_some(self.label.clone(), |checkbox, label| {
@@ -156,6 +157,10 @@ impl RenderOnce for Switch {
         let primary = theme.primary;
 
         BaseSwitch::new(self.id.clone())
+            .debug_selector({
+                let id = self.id.clone();
+                move || id.to_string()
+            })
             .checked(checked)
             .when_some(self.on_click, |switch, handler| {
                 switch.on_change(move |next, _, window, cx| handler(&next, window, cx))

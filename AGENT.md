@@ -168,6 +168,20 @@ add a faster path that skips them.
 - **Every test needs an assertion that can fail.** Calling something and asserting nothing, or
   comparing a value with itself, proves nothing.
 
+### GUI end-to-end tests
+
+- Use `tests/gui_support` to launch the real MainView with GPUI's headless test platform.
+  Derive component selectors from their ids and keep them unique within a frame; add input
+  selectors only where a test uses them. Call `settle` before clicking so sheet animations end.
+- Drive user actions through controls. Assert on saved files, statuses, selector presence and
+  window identity, not rendered text. Keep text, fault, boundary and race tests where GUI
+  tests cannot observe the same failures. Prove new journeys with a restored-afterward mutation.
+- Never click startup, open-data-folder or log-open-file controls in tests. Use an in-memory
+  filesystem for Mirror deletions (or explicitly select permanent deletion in a temporary
+  physical directory). Do not invoke tray, single-instance or native-window services.
+- Keep language and global logging tests in separate test binaries. Use Manual triggers;
+  invalid-cron startup is the synchronous exception. Do not use real sleeps to drive GUI work.
+
 ## Commits
 
 - Do **not** add a "Co-Authored-By: Claude" trailer, or any AI co-author or attribution

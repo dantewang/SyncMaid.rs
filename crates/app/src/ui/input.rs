@@ -13,13 +13,22 @@ use crate::theme::ActiveTheme as _;
 #[derive(IntoElement)]
 pub struct Input {
     state: Entity<InputState>,
+    selector: Option<&'static str>,
 }
 
 impl Input {
     pub fn new(state: &Entity<InputState>) -> Self {
         Self {
             state: state.clone(),
+            selector: None,
         }
+    }
+
+    /// The name a GUI test finds this field by. A field has no id of its own to reuse, the way
+    /// a button does. A no-op outside test builds.
+    pub fn debug_selector(mut self, selector: &'static str) -> Self {
+        self.selector = Some(selector);
+        self
     }
 }
 
@@ -47,6 +56,9 @@ impl RenderOnce for Input {
 
         h_flex()
             .id(("input", self.state.entity_id()))
+            .when_some(self.selector, |field, selector| {
+                field.debug_selector(move || selector.to_owned())
+            })
             .w_full()
             .h(px(32.))
             .px(px(10.))

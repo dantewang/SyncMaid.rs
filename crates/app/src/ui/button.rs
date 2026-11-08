@@ -257,8 +257,11 @@ impl RenderOnce for Button {
         let icon_only = self.label.is_none();
         let bordered = self.outline || self.variant == Variant::Default;
         let reacts = !self.disabled && !self.selected;
+        // The id doubles as the handle a GUI test clicks by. A no-op outside test builds.
+        let selector = self.id.to_string();
 
         BaseButton::new(self.id)
+            .debug_selector(move || selector)
             .track_focus(&focus)
             .relative()
             .flex_shrink_0()

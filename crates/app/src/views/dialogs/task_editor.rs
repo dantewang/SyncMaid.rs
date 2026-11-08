@@ -309,7 +309,7 @@ impl Render for TaskEditor {
             .child(
                 field()
                     .label(strings::common_name_label())
-                    .child(Input::new(&self.name)),
+                    .child(Input::new(&self.name).debug_selector("task-name")),
             )
             .child(
                 field()

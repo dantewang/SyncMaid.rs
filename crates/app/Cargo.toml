@@ -55,6 +55,11 @@ serde_json.workspace = true
 winresource = "0.1"
 
 [dev-dependencies]
+# GPUI's headless test platform, for the tests in `tests/gui_*.rs` that drive the real window
+# from a click to the files on disk. Test builds only. The GPUI the Kit is built on, rather than
+# the Kit's own `test-support`: that one names gpui-component as a weak dependency, and Cargo
+# resolves a weak dependency into the lock even unused — a version crates.io does not have.
+gpui = { package = "gpui-pre", version = "=0.3.11", default-features = false, features = ["test-support"] }
 notify = "8.2.0"
 syncmaid-core = { workspace = true, features = ["testing"] }
 tempfile = "3.27.0"

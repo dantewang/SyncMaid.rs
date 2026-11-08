@@ -14,6 +14,7 @@ pub struct Harness {
     pub data: TempDir,
     pub fs: Arc<dyn FileSystem>,
     pub config: ConfigLocation,
+    pub view: std::cell::RefCell<Option<gpui_kit::Entity<MainView>>>,
 }
 impl Harness {
     pub fn physical() -> Self {
@@ -25,7 +26,12 @@ impl Harness {
     fn new(fs: Arc<dyn FileSystem>) -> Self {
         let data = TempDir::new().unwrap();
         let config = ConfigLocation::at(data.path());
-        Self { data, fs, config }
+        Self {
+            data,
+            fs,
+            config,
+            view: Default::default(),
+        }
     }
     pub fn seed_tasks(&self, tasks: &[SyncTask]) {
         TaskStore::new(self.fs.clone(), self.config.tasks_path())
@@ -49,8 +55,10 @@ impl Harness {
         });
         let workspace = Workspace::load(self.fs.clone(), &self.config);
         let fs = self.fs.clone();
+        let stored_view = &self.view;
         let (_, cx) = cx.add_window_view(move |window, cx| {
             let view = cx.new(|cx| MainView::new(workspace, fs, cx));
+            *stored_view.borrow_mut() = Some(view.clone());
             Root::new(view, window, cx)
         });
         settle(cx);
@@ -105,8 +113,11 @@ pub fn click(cx: &mut VisualTestContext, selector: &str) {
         bounds.size.width > gpui_kit::px(0.) && bounds.size.height > gpui_kit::px(0.),
         "zero-sized selector {selector}"
     );
+    let window = cx.update(|window, _| window.window_handle());
     cx.simulate_click(bounds.center(), Modifiers::none());
-    settle(cx);
+    if cx.windows().contains(&window) {
+        settle(cx);
+    }
 }
 
 /// Answers the folder picker the last click opened.
@@ -118,4 +129,23 @@ pub fn pick_folder(cx: &mut VisualTestContext, folder: &Path) {
     let folder = folder.to_path_buf();
     cx.simulate_path_prompt_response(move |_| Some(vec![folder]));
     cx.run_until_parked();
+}
+
+pub fn task(name: &str, source: &str, destination: &str) -> SyncTask {
+    use syncmaid_core::{
+        filtering::FilterRule,
+        model::{Destination, SyncStrategy},
+        triggers::Trigger,
+    };
+    SyncTask::new(
+        name,
+        source,
+        Trigger::Manual,
+        [Destination::new(
+            name,
+            destination,
+            [FilterRule::AllFiles],
+            SyncStrategy::AddOnly,
+        )],
+    )
 }

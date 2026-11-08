@@ -1,6 +1,7 @@
 use gpui_kit::base::input::InputEditorStyle;
 use gpui_kit::{
-    prelude::*, px, rems, App, Entity, Focusable as _, IntoElement, MouseButton, RenderOnce, Window,
+    prelude::*, px, rems, App, Entity, Focusable as _, IntoElement, MouseButton, RenderOnce,
+    SharedString, Window,
 };
 
 pub use gpui_kit::base::input::InputState;
@@ -13,7 +14,7 @@ use crate::theme::ActiveTheme as _;
 #[derive(IntoElement)]
 pub struct Input {
     state: Entity<InputState>,
-    selector: Option<&'static str>,
+    selector: Option<SharedString>,
 }
 
 impl Input {
@@ -26,8 +27,8 @@ impl Input {
 
     /// The name a GUI test finds this field by. A field has no id of its own to reuse, the way
     /// a button does. A no-op outside test builds.
-    pub fn debug_selector(mut self, selector: &'static str) -> Self {
-        self.selector = Some(selector);
+    pub fn debug_selector(mut self, selector: impl Into<SharedString>) -> Self {
+        self.selector = Some(selector.into());
         self
     }
 }
@@ -57,7 +58,7 @@ impl RenderOnce for Input {
         h_flex()
             .id(("input", self.state.entity_id()))
             .when_some(self.selector, |field, selector| {
-                field.debug_selector(move || selector.to_owned())
+                field.debug_selector(move || selector.to_string())
             })
             .w_full()
             .h(px(32.))

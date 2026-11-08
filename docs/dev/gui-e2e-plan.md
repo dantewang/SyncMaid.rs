@@ -10,7 +10,7 @@
 - 因此 `MainView` 的接线没有任何覆盖：编辑器保存 → `Workspace::upsert_task` → 落盘；卡片的运行按钮
   → `run_task` → `refuse_run` / `apply_statuses`；`review_deletions` → 确认窗口 → 只重跑被确认的目的地；
   触发器启动失败 → 卡片角标。
-- 分支 `test/gui-e2e-spike` 的提交 `2b5ba17` 已经验证可行：
+- 分支 `test/gui-e2e-spike` 上的试验提交已经验证可行（在它之上继续，不要另起分支）：
   - `crates/app/tests/gui_create_and_run.rs` 用 GPUI 的无窗口测试平台，从点击“新建任务”开始，
     选择文件夹、保存、添加目的地、运行，最后检查磁盘上的文件和 `status.json`。本地 0.4 秒内通过。
   - 变异验证：删掉 `MainView` 里的 `view.workspace.apply_statuses(statuses)`，测试按预期失败。
@@ -92,12 +92,12 @@ pub fn other_window(cx: &mut VisualTestContext, main: AnyWindowHandle) -> Visual
 | 输入框 | 文件 | 建议选择器 |
 |---|---|---|
 | 目的地名称 / 路径 | `destination_editor.rs` | `destination-name` / `destination-path` |
-| 规则组输入框 | `destination_editor.rs` 第 787 行附近 | `rule-input-{index}`（需要运行时字符串，可以给 `Input::debug_selector` 改为接受 `impl Into<SharedString>`，或者另加一个方法） |
+| 规则组输入框 | `destination_editor.rs`，`group_inputs` 渲染处 | `rule-input-{index}`（`Input::debug_selector` 接受运行时字符串） |
 | 批量删除阈值 | `destination_editor.rs` | `mass-delete-threshold` |
 | cron / 稳定期 | `task_editor.rs` | `task-cron` / `task-settle` |
 
 **选择器在一帧内必须唯一。** `debug_bounds` 背后是一张 map，重复的名字会悄悄只留下一个。已知的重复：
-每张卡片的 `trigger-error`（`main_view.rs` 第 1713 行）；task editor 里不同状态共用的 Alert id `cron`；
+每张卡片的 `trigger-error`（`main_view.rs` 的 `trigger_error_badge`）；task editor 里不同状态共用的 Alert id `cron`；
 destination editor 里每个规则组都有的 `path` / `extension` / `wildcard` / `regex` / `any` / `all` 按钮
 （只有一个规则组时不冲突）。
 测试需要用到时，把 id 改成按任务区分（例如 `trigger-error-{task_id}`）；改 element id 不改变行为。

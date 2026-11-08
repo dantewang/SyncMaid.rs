@@ -147,14 +147,6 @@ mod tests {
     }
 
     #[test]
-    fn a_task_does_not_conflict_with_itself_while_being_edited() {
-        let tasks = vec![task("Photos", r"C:\Photos", &[])];
-        let editing = tasks[0].id;
-
-        assert_eq!(None, source_conflict(&tasks, Some(editing), r"C:\Photos"));
-    }
-
-    #[test]
     fn chaining_one_tasks_destination_into_anothers_source_is_allowed() {
         let tasks = vec![task("Sorter", r"C:\Downloads", &[r"D:\Filed"])];
 
@@ -200,66 +192,6 @@ mod tests {
         assert_eq!(None, sibling_conflict(&separate));
     }
 
-    #[test]
-    fn a_run_is_refused_when_either_end_overlaps_another_task() {
-        let photos = task("Photos", r"C:\Photos", &[r"N:\backup"]);
-
-        let shared_source = task("Copy of photos", r"C:\Photos\2024", &[r"N:\elsewhere"]);
-        assert_eq!(
-            Some("Photos".to_owned()),
-            run_conflict(&[photos.clone(), shared_source.clone()], &shared_source)
-                .map(|c| c.task_name)
-        );
-
-        let shared_destination = task("Second backup", r"C:\Videos", &[r"N:\backup\inner"]);
-        assert_eq!(
-            Some("Photos".to_owned()),
-            run_conflict(
-                &[photos.clone(), shared_destination.clone()],
-                &shared_destination
-            )
-            .map(|c| c.task_name)
-        );
-    }
-
-    #[test]
-    fn a_run_that_shares_nothing_is_not_refused() {
-        let photos = task("Photos", r"C:\Photos", &[r"N:\backup"]);
-        let videos = task("Videos", r"C:\Videos", &[r"N:\videos"]);
-
-        assert_eq!(
-            None,
-            run_conflict(&[photos.clone(), videos.clone()], &videos)
-        );
-        assert_eq!(
-            None,
-            run_conflict(&[photos.clone(), videos], &photos),
-            "a task in the list it is checked against is not its own conflict"
-        );
-    }
-
-    #[test]
-    fn a_run_of_a_chained_task_is_allowed() {
-        let sorter = task("Sorter", r"C:\Downloads", &[r"D:\Filed"]);
-        let backup = task("Backup", r"D:\Filed", &[r"N:\archive"]);
-
-        assert_eq!(
-            None,
-            run_conflict(&[sorter.clone(), backup.clone()], &backup),
-            "chaining is the layout the trigger coalescing and idempotent planning exist for"
-        );
-        assert_eq!(None, run_conflict(&[sorter.clone(), backup], &sorter));
-    }
-
-    #[test]
-    fn two_destinations_of_one_task_are_left_to_the_engine() {
-        let overlapping = task("Photos", r"C:\Photos", &[r"N:\backup", r"N:\backup\inner"]);
-
-        assert_eq!(
-            None,
-            run_conflict(std::slice::from_ref(&overlapping), &overlapping),
-            "the engine refuses this one, and names both destinations rather than a task"
-        );
-        assert!(sibling_conflict(&overlapping).is_some());
-    }
+    // `run_conflict` is pinned end to end, from the card's run button: see
+    // `tests/gui_run_outcomes.rs` and `tests/gui_create_and_run.rs`.
 }

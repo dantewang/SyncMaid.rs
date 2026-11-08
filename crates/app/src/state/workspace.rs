@@ -277,30 +277,8 @@ mod tests {
         Workspace::load(Arc::new(memory.clone()), &ConfigLocation::at(CONFIG))
     }
 
-    #[test]
-    fn a_first_run_loads_empty_and_is_free_to_save() {
-        let memory = InMemoryFileSystem::new();
-        let workspace = workspace(&memory);
-
-        assert!(workspace.tasks().is_empty());
-        assert!(!workspace.config_unreadable());
-    }
-
-    #[test]
-    fn unreadable_config_switches_persistence_off_rather_than_overwriting_it() {
-        let memory = InMemoryFileSystem::new();
-        memory.add_file(format!(r"{CONFIG}\tasks.json"), b"{ not json");
-        let workspace = workspace(&memory);
-
-        assert!(workspace.config_unreadable());
-        workspace.persist_tasks();
-
-        assert_eq!(
-            Some(b"{ not json".to_vec()),
-            memory.contents_of(format!(r"{CONFIG}\tasks.json")),
-            "the file the user still has must not be replaced by the empty list we invented"
-        );
-    }
+    // A first run, unreadable config and settings surviving a restart are pinned through the
+    // window: `tests/gui_create_and_run.rs`, `gui_persistence.rs` and `gui_settings.rs`.
 
     #[test]
     fn statuses_for_destinations_that_no_longer_exist_are_pruned() {
@@ -353,16 +331,5 @@ mod tests {
         assert!(memory
             .contents_of(format!(r"{CONFIG}\settings.json"))
             .is_some());
-    }
-
-    #[test]
-    fn settings_survive_a_reload() {
-        let memory = InMemoryFileSystem::new();
-        workspace(&memory).update_settings(|settings| settings.language = Some("ja".into()));
-
-        assert_eq!(
-            Some("ja".to_owned()),
-            workspace(&memory).settings().language
-        );
     }
 }
